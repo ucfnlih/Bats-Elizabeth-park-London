@@ -1,0 +1,247 @@
+---
+title: "Untitled"
+author: "WENDI"
+date: "2023-07-15"
+output: html_document
+---
+```{r}
+library(tidyverse)
+library(tidyr)
+library(dplyr)
+library(scales) # for date formatting
+library(ggplot2)
+library(data.table)
+library(lubridate)
+library(suncalc)
+Sys.setlocale("LC_TIME", "English")
+```
+
+```{r}
+sensor_total <- read.csv("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/raw_data/sensor_total_new.csv")
+sensor_filter_weather <- sensor_total %>%
+  filter(sensor_number %in% c(2, 3, 4, 5, 6, 7, 9, 10, 12, 13) &
+           date >= as.Date("2019-06-01") &
+           date <= as.Date("2020-05-31")
+         )
+```
+#sensor data manipulation
+```{r}
+###Add time-hour interval
+sensor_filter_weather$time_hour <- as.POSIXct(sensor_filter_weather$time, format = "%H:%M:%S.%OS")
+#daily$time_hour <- format(daily$time_hour, "%H")
+#daily$time_hour <- as.numeric(daily$time_hour)
+sensor_filter_weather$time_hour <- as.numeric(format(sensor_filter_weather$time_hour, "%H")) + as.numeric(format(sensor_filter_weather$time_hour, "%M"))/60 + as.numeric(format(sensor_filter_weather$time_hour, "%S"))/3600
+
+sensor_filter_weather$interval <- cut(sensor_filter_weather$time_hour, breaks = seq(from = 0, to = 24, by = 1), include.lowest = TRUE)
+```
+
+##join sunset data and sensor data
+```{r}
+sensor_filter_weather$datetime <- as.POSIXct(paste(sensor_filter_weather$date, sensor_filter_weather$time), format="%Y-%m-%d %H:%M:%OS", tz = "UTC")
+
+sunset_sunrise <- read.csv("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/raw_data/sunrise_sunset.csv")
+
+#manipulate
+sunset_sunrise <- sunset_sunrise %>%
+  mutate(Rise = strptime(Rise, "%H:%M"),Set = strptime(Set, "%H:%M"))
+sunset_sunrise <- sunset_sunrise %>%
+  mutate(Rise = format(Rise, "%H:%M:%OS6"),Set  = format(Set, "%H:%M:%OS6"))
+sunset_sunrise$date <- paste0(sunset_sunrise$Year, "-", sunset_sunrise$Month, "-", sunset_sunrise$Day)
+sunset_sunrise <- sunset_sunrise[, !names(sunset_sunrise) %in% c("Year", "Month", "Day")]
+#Add 2 columns about datetime
+sunset_sunrise <- sunset_sunrise %>%
+  mutate(
+    Rise_datetime = as.POSIXct(paste(date, Rise), format = "%Y-%m-%d %H:%M:%S", tz = "UTC"),
+    Set_datetime = as.POSIXct(paste(date, Set), format = "%Y-%m-%d %H:%M:%S", tz = "UTC")
+  )
+
+#join
+sunset_sunrise$date <- as.Date(sunset_sunrise$date, format = "%Y-%m-%d")
+sensor_filter_weather$date <- as.Date(sensor_filter_weather$date, format = "%Y-%m-%d")
+sensor_filer_join <- left_join(sensor_filter_weather, sunset_sunrise, by = "date")
+```
+##add hour_after_sunset (long time)
+```{r}
+##run for a long time!!!!!
+sunset_dict <- setNames(sunset_sunrise$Set_datetime, sunset_sunrise$date)
+
+calc_hours_after_sunset <- function(date_time) {
+  
+  date <- as.Date(date_time)
+  time <- as.POSIXct(format(date_time, "%Y-%m-%d %H:%M:%S"), tz = "UTC")
+  
+  time_hour <- as.numeric(format(time, "%H"))
+  
+  sunset <- as.POSIXct(sunset_dict[as.character(date)], format = "%Y-%m-%d %H:%M:%S", tz = "UTC")
+  
+  if(time < sunset & time_hour < 12) {
+    date <- as.Date(date) - 1  
+    #time <- time + 24*60*60  # the time and sunset have the date information!!
+    sunset <- as.POSIXct(sunset_dict[as.character(date)], format = "%Y-%m-%d %H:%M:%S", tz = "UTC")
+  }
+  
+  return(as.numeric(difftime(time, sunset, units = "hours")))
+}
+
+# new column
+sensor_filer_join <- sensor_filer_join %>%
+  mutate(hours_after_sunset = sapply(datetime, calc_hours_after_sunset))
+```
+## add sunset interval
+```{r}
+sensor_sunset <- select(sensor_filer_join, -c("Rise","Set","Rise_datetime"))
+#write.csv(sensor_sunset, "C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/sensor_sunset.csv", row.names = FALSE)
+sensor_sunset <- sensor_sunset %>% filter(date != "2019-06-01")
+
+# add interval_half
+labels <- seq(floor(min(sensor_sunset$hours_after_sunset)), ceiling(max(sensor_sunset$hours_after_sunset)), by = 0.5)
+labels <- paste0("[", labels[-length(labels)], ",", labels[-1], "]")
+
+sensor_sunset <- sensor_sunset %>%
+  mutate(interval_half = cut(hours_after_sunset, breaks = seq(floor(min(hours_after_sunset)), ceiling(max(hours_after_sunset)), by = 0.5), include.lowest = TRUE, labels = labels))
+
+# choose 
+values_to_select <- c("[-2,-1.5]","[-1.5,-1]","[-1,-0.5]","[-0.5,0]", "[0,0.5]","[0.5,1]","[1,1.5]","[1.5,2]","[2,2.5]","[2.5,3]","[3,3.5]","[3.5,4]","[4,4.5]","[4.5,5]","[5,5.5]","[5.5,6]","[6,6.5]","[6.5,7]","[7,7.5]","[7.5,8]")
+
+sensor_sunset <- sensor_sunset %>%
+  filter(interval_half %in% values_to_select)
+
+```
+final-sensor
+```{r}
+### Group by sensor, interval and date; and differentiate type
+
+group_sensor_sunset <- sensor_sunset %>%
+  group_by(date,sensor_number,interval_half) %>%
+  summarise(all_types = n(), 
+    Pipistrellus_nathusii = sum(type == "Pipistrellus nathusii"),
+    Pipistrellus_pipistrellus = sum(type == "Pipistrellus pipistrellus"),
+    Pipistrellus_pygmaeus = sum(type == "Pipistrellus pygmaeus"),
+            .groups = "drop")
+
+write.csv(group_sensor_sunset, "C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/group_sensor_sunset.csv", row.names = FALSE) 
+#write.csv(sensor_filter_weather, "C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/sensor_filter_weather.csv", row.names = FALSE) 
+#Have checked
+```
+
+#weather data manipulation
+```{r}
+weather_date_clean <- read.csv("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/weather_date_clean.csv")
+```
+drop variables that not related to analysis
+```{r}
+weather_select <- select(weather_date_clean, -c("stationID","tz","obsTimeUtc","obsTimeLocal","epoch","lat","lon","solarRadiationHigh","uvHigh","qcStatus","winddirAvg"))
+```
+add interval
+```{r}
+###Add interval
+weather_select$time_hour <- as.POSIXct(weather_select$time, format = "%H:%M:%S")
+#daily$time_hour <- format(daily$time_hour, "%H")
+#daily$time_hour <- as.numeric(daily$time_hour)
+weather_select$time_hour <- as.numeric(format(weather_select$time_hour, "%H")) + as.numeric(format(weather_select$time_hour, "%M"))/60 + as.numeric(format(weather_select$time_hour, "%S"))/3600
+
+weather_select$interval <- cut(weather_select$time_hour, breaks = seq(from = 0, to = 24, by = 1), include.lowest = TRUE)
+```
+## add interval_half
+```{r}
+sunset_sunrise$date <- as.Date(sunset_sunrise$date, format = "%Y-%m-%d")
+weather_select$date <- as.Date(weather_select$date, format = "%Y-%m-%d")
+weather_join <- left_join(weather_select, sunset_sunrise, by = "date")
+library(lubridate)
+
+weather_join$datetime <- ymd_hms(weather_join$datetime)
+```
+long!!! (not really)
+```{r}
+weather_join <- weather_join %>%
+  mutate(hours_after_sunset = sapply(datetime, calc_hours_after_sunset))
+
+weather_join <- select(weather_join, -c("Rise","Set","Rise_datetime"))
+
+# add intercal_half
+labels <- seq(floor(min(weather_join$hours_after_sunset)), ceiling(max(weather_join$hours_after_sunset)), by = 0.5)
+labels <- paste0("[", labels[-length(labels)], ",", labels[-1], "]")
+
+weather_join <- weather_join %>%
+  mutate(interval_half = cut(hours_after_sunset, breaks = seq(floor(min(hours_after_sunset)), ceiling(max(hours_after_sunset)), by = 0.5), include.lowest = TRUE, labels = labels))
+
+# choose 
+values_to_select <- c("[-2,-1.5]","[-1.5,-1]","[-1,-0.5]","[-0.5,0]", "[0,0.5]","[0.5,1]","[1,1.5]","[1.5,2]","[2,2.5]","[2.5,3]","[3,3.5]","[3.5,4]","[4,4.5]","[4.5,5]","[5,5.5]","[5.5,6]","[6,6.5]","[6.5,7]","[7,7.5]","[7.5,8]")
+
+weather_join <- weather_join %>%
+  filter(interval_half %in% values_to_select)
+```
+final-weather
+
+group by
+```{r}
+group_weather <- weather_join %>%
+  select(-c("datetime","time_hour","time","interval","Set_datetime","hours_after_sunset"))
+write.csv(weather_join, "C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/weather_join.csv", row.names = FALSE) 
+
+group_weather <- group_weather %>%
+  group_by(date, interval_half) %>%
+  summarise_all(.funs = mean, na.rm = TRUE)
+write.csv(group_weather, "C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/group_weather.csv", row.names = FALSE) 
+```
+group_weather:5160 (258 days * 20 interval_half)
+group_sunsor_senset:11206 (including different sensors)
+
+
+# Final sensor & weather
+```{r}
+sensor_weather <- left_join(group_sensor_sunset, group_weather, by = c("date","interval_half"))
+#write.csv(sensor_weather, "C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/sensor_weather.csv", row.names = FALSE) 
+
+sensor_weather_final <- na.omit(sensor_weather)
+
+# Check
+unique_dates1 <- unique(sensor_weather_final$date)#255days
+unique_dates2 <- unique(group_weather$date) #258days
+are_dates_same <- all(sort(unique_dates1) == sort(unique_dates2))
+print(are_dates_same)
+
+write.csv(sensor_weather_final, "C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/sensor_weather_final.csv", row.names = FALSE) 
+```
+
+
+
+```{r}
+# 找到包含至少一个空值的行
+
+rows_with_na <- apply(is.na(group_weather), 1, any)
+
+# 打印包含空值的行
+df_with_na <- group_weather[rows_with_na, ]
+print(df_with_na)
+```
+
+```{r}
+
+
+# 指定日期和地点
+mydate <- as.Date("2023-07-17")
+latitude <- 51.5074
+longitude <- -0.1278
+
+# 计算当天日落时间
+sun_times <- getSunlightTimes(date = mydate, lat = latitude, lon = longitude)
+sunset <- sun_times$sunset
+
+# 指定的时间
+time <- as.POSIXct("2023-07-17 01:00:00", tz = "UTC")
+
+# 如果指定的时间在日落后，使用前一天的日落时间
+if(time < sunset) {
+  mydate <- mydate - 1  # 减去24小时得到前一天的日期
+  sun_times <- getSunlightTimes(date = mydate, lat = latitude, lon = longitude)
+  sunset <- sun_times$sunset
+}
+
+# 计算指定的时间是日落后第几小时
+hours_after_sunset <- difftime(time, sunset, units = "hours")
+print(hours_after_sunset)
+
+```
+
+

@@ -1,0 +1,129 @@
+---
+title: "Untitled"
+author: "WENDI"
+date: "2023-07-11"
+output: html_document
+---
+
+```{r}
+library(jsonlite)
+library(tidyverse)
+
+# Specify the directory where your JSON files are stored
+json_directory <- "C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/raw_data/weather_06190520"
+
+# Generate a list of all JSON files in the directory
+json_files <- list.files(path = json_directory, pattern = "*.json", full.names = TRUE)
+
+# Initialize an empty list to store data frames
+df_list <- list()
+# Initialize a data frame to store file names and their parse status
+parse_status_df <- data.frame(file_name = character(), parse_success = logical())
+
+
+# Loop over the JSON files
+for (file in json_files) {
+  # Check if the file size is less than 10KB
+  if (file.info(file)$size < 10 * 1024) {
+    warning(paste("The file", file, "is smaller than 10KB. Skipping it."))
+    parse_status_df <- rbind(parse_status_df, data.frame(file_name = file, parse_success = FALSE))
+    next
+  }
+  
+  # Parse JSON
+  data <- tryCatch(fromJSON(file), error = function(e) NULL)
+  
+  if (is.null(data)) {
+    warning(paste("Couldn't parse the file", file, ". Skipping it."))
+    parse_status_df <- rbind(parse_status_df, data.frame(file_name = file, parse_success = FALSE))
+
+    next
+  }
+  
+  # If data is NULL (due to JSON error), skip this iteration
+  df <- data %>%
+          as_tibble() %>%
+          unnest_wider(observations) %>%
+          unnest_wider(metric)
+   
+  # Add the resulting data frame to the list
+  df_list[[length(df_list) + 1]] <- df
+  parse_status_df <- rbind(parse_status_df, data.frame(file_name = file, parse_success = TRUE))
+
+}
+
+# Combine all data frames into one
+weather_raw <- bind_rows(df_list)
+
+# Write the combined data frame to a CSV file
+#write.csv(combined_df, "C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/weather.csv", row.names = FALSE) 
+#write.csv(combined_df, "C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/parse_status.csv", row.names = FALSE) 
+```
+
+too long, so copy another one.
+```{r}
+weather_raw_copy = weather_raw
+parse_status_copy = parse_status_df
+#write.csv(parse_status_copy, "C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/parse_status.csv", row.names = FALSE) 
+```
+
+```{r}
+# convert Unix timestamp
+weather_raw_copy$datetime <- as.POSIXct(weather_raw_copy$epoch, origin = "1970-01-01", tz = "UTC")
+weather_raw_copy$date <- as.Date(weather_raw_copy$datetime)
+weather_raw_copy$time <- format(weather_raw_copy$datetime, format = "%T")  # 
+#write.csv(weather_raw_copy, "C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/weather_raw_copy.csv", row.names = FALSE) 
+#check
+
+# calculate counts
+date_counts <- table(weather_raw_copy$date)
+#all dates
+all_dates <- seq(from = min(weather_raw_copy$date), 
+                 to = max(weather_raw_copy$date), 
+                 by = "day")
+# new dataframe
+df_dates <- data.frame(date = all_dates)
+# new column store colors, assuming all dates are missing first
+df_dates$color <- "red"  
+# exsiting dates
+df_dates$color[df_dates$date %in% names(date_counts)] <- "yellow"
+# dates = 288
+df_dates$color[df_dates$date %in% names(date_counts)[date_counts == 288]] <- "darkgreen"
+
+library(ggplot2)
+df_dates$date <- as.Date(df_dates$date)
+counts <- df_dates %>% #only for the legend!!
+  group_by(color) %>% 
+  summarise(n = n_distinct(date))
+
+# 创建一个新的图例项
+p_weather_available <- ggplot(df_dates, aes(x = date,y=1)) +
+  #geom_histogram(aes(fill = color), stat="count", binwidth = 1) +
+  geom_tile(aes(fill = color)) +
+  scale_fill_manual("Status", 
+                    values = c("red" = "#C65911", "yellow" = "#fffd01", "darkgreen" = "darkgreen"),
+                    labels = c("Complete (258 days)", "Missing (37 days)", "Incomplete (42 days)")) +
+  labs(x = "Date", y = "Count", title = "Status of Weather Data")+
+  scale_x_date(date_breaks = "1 month", date_labels = "%Y-%m")+
+  theme_minimal() +
+  theme(plot.title = element_text(size = 20),#title of plot
+        axis.title.x = element_blank(),#title of axis
+        axis.title.y = element_blank(),
+        axis.text.y = element_blank(),# text of axis
+        axis.text.x = element_text(angle = 45, hjust = 1,size = 16),
+        legend.title = element_text(size = 16),
+        legend.text = element_text(size = 14),
+        legend.position = "bottom",#left bottomn (0,0)
+        legend.background = element_blank())
+
+print(p_weather_available)
+ggsave("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/output_figures/weather_available.png", plot = p_weather_available, width = 10, height = 4, dpi = 600)
+
+
+###choose the final date
+dates_not_288 <- as.Date(names(date_counts)[date_counts != 288])
+# mark
+date_in_288 <- !(weather_raw_copy$date %in% dates_not_288)
+weather_date <- weather_raw_copy[date_in_288, ]
+write.csv(weather_date, "C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/weather_date_clean.csv", row.names = FALSE) 
+```

@@ -1,0 +1,732 @@
+---
+title:daily pattern
+author: "WENDI"
+date: "2023-07-04"
+output: html_document
+---
+```{r}
+library(tidyverse)
+library(tidyr)
+library(dplyr)
+library(scales) # for date formatting
+library(ggplot2)
+library(data.table)
+library(lubridate)
+Sys.setlocale("LC_TIME", "English")
+```
+
+```{r}
+sunset_sunrise <- read.csv("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/raw_data/sunrise_sunset.csv")
+sensor_total <- read.csv("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/raw_data/sensor_total_new.csv")
+
+##cleaning sunset_sunrise dataset
+# Convert the "time" column to a time object
+sunset_sunrise <- sunset_sunrise %>%
+  mutate(Rise = strptime(Rise, "%H:%M"),Set = strptime(Set, "%H:%M"))
+sunset_sunrise <- sunset_sunrise %>%
+  mutate(Rise = format(Rise, "%H:%M:%OS6"),Set  = format(Set, "%H:%M:%OS6"))
+sunset_sunrise$date <- paste0(sunset_sunrise$Year, "-", sunset_sunrise$Month, "-", sunset_sunrise$Day)
+sunset_sunrise <- sunset_sunrise[, !names(sunset_sunrise) %in% c("Year", "Month", "Day")]
+
+#make sure the format for 2 datasets
+#sunset_sunrise$Rise <- strptime(sunset_sunrise$Rise, format = "%H:%M:%OS6")#can not be 6
+#sunset_sunrise$Set <- strptime(sunset_sunrise$Set, format = "%H:%M:%OS6")
+#sensor_total$time <- strptime(sensor_total$time, format = "%H:%M:%OS6")
+sunset_sunrise$date <- as.Date(sunset_sunrise$date, format = "%Y-%m-%d")
+sensor_total$date <- as.Date(sensor_total$date, format = "%Y-%m-%d")
+```
+filter sensor_total
+```{r}
+sensor_filter <- sensor_total %>%
+  filter(sensor_number %in% c(2, 3, 4, 5, 6, 7, 9, 10, 12, 13) &
+           date >= as.Date("2019-06-01") &
+           date <= as.Date("2020-05-31")
+         )
+```
+merge
+```{r}
+daily <- left_join(sensor_filter, sunset_sunrise, by = "date")
+```
+There is no native solution in R to handle microseconds in time data!
+#General_plot
+```{r}
+daily$time[grepl("^\\d{2}:\\d{2}:\\d{2}$", daily$time)] <- paste0(daily$time[grepl("^\\d{2}:\\d{2}:\\d{2}$", daily$time)], ".000000")
+
+# ??????????????????????????????????????????6????????????,?????????6???
+daily$time <- ifelse(grepl("\\.", daily$time), 
+                     sprintf('%-12s', daily$time),
+                     daily$time)
+
+daily$time_hour <- as.POSIXct(daily$time, format = "%H:%M:%S.%OS")
+#daily$time_hour <- format(daily$time_hour, "%H")
+#daily$time_hour <- as.numeric(daily$time_hour)
+daily$time_hour <- as.numeric(format(daily$time_hour, "%H")) + as.numeric(format(daily$time_hour, "%M"))/60 + as.numeric(format(daily$time_hour, "%S"))/3600
+
+daily$interval <- cut(daily$time_hour, breaks = seq(from = 0, to = 24, by = 1), include.lowest = TRUE)
+
+#calculate the number of each interval
+time_distribution <- table(daily$interval)
+#----
+time_distribution_df <- as.data.frame(table(daily$interval))
+
+# 修改列名为'Interval'和'Count'
+names(time_distribution_df) <- c('Interval', 'Count')
+
+# 创建柱状图
+p_hour <- ggplot(time_distribution_df, aes(x = Interval, y = Count)) +
+  geom_bar(stat = 'identity', fill = "#59656d") +
+  labs(title = "Distribution of Bat Calls in A Day",
+       x = "Hour of Day",
+       y = "Calls Count") +
+  theme_minimal()+
+  theme(plot.title = element_text(size = 22),#title of plot
+        axis.title.x = element_text(size = 18),#title of axis
+        axis.title.y = element_text(size = 18),
+        axis.text.y = element_text(size = 16),# text of axis
+        axis.text.x = element_text(angle = 45, hjust = 1,size = 16),
+        legend.title = element_text(size = 16),
+        legend.text = element_text(size = 14),
+        legend.position = c(0.6, 0.8),#left bottomn (0,0)
+        legend.background = element_blank())
+print(p_hour)
+ggsave("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/output_figures/daily_hour.png", plot = p_hour, width = 10, height = 8, dpi = 600)
+
+```
+general plot (new)
+```{r}
+library(dplyr)
+
+daily_summarized <- daily %>% 
+  group_by(interval, type) %>% 
+  summarise(Count = n()) %>%
+  mutate(type = ifelse(!type %in% c("Pipistrellus nathusii", "Pipistrellus pipistrellus", "Pipistrellus pygmaeus"), "Other types", type))
+
+# Reorder the levels of 'type' based on the sum of 'Count' for each type
+daily_summarized$type <- factor(daily_summarized$type, levels = daily_summarized %>% 
+                                   group_by(type) %>%
+                                   summarise(total = sum(Count)) %>%
+                                   arrange(-total) %>% 
+                                   pull(type))
+
+colors <- c("Pipistrellus nathusii" = "#833C0C", 
+            "Pipistrellus pipistrellus" = "#525252", 
+            "Pipistrellus pygmaeus" = "#75937F", 
+            "Other types" = "#EAB35E")
+
+# Plot the graph as before
+p_distribution_new <- ggplot(daily_summarized, aes(x = interval, y = Count, fill = type)) +
+  geom_area(aes(group = type), position = 'stack') +
+  labs(title = "Distribution of Bat Calls in A Day",
+       x = "Hour of Day",
+       y = "Call Counts (Untransformed)") +
+  scale_fill_manual(values = colors, name = "Species")+
+  theme_minimal() +
+  theme(plot.title = element_blank(),#title of plot
+        axis.title.x = element_text(size = 18),#title of axis
+        axis.title.y = element_text(size = 18),
+        axis.text.y = element_text(size = 16),# text of axis
+        axis.text.x = element_text(angle = 45, hjust = 1,size = 16),
+        legend.title = element_text(size = 16),
+        legend.text = element_text(size = 14),
+        legend.position = c(0.6, 0.8),#left bottomn (0,0)
+        legend.background = element_blank(),
+        #axis.line = element_line(colour = "black", size = 0.6),
+        panel.border = element_rect(colour = "black", fill=NA, size=0.6)
+  )
+        #panel.grid.major = element_blank(),
+        #panel.grid.minor = element_blank())
+print(p_distribution_new)
+ggsave("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/output_figures/daily_hour_new.png", plot = p_distribution_new, width = 10, height = 8, dpi = 600)
+
+```
+
+
+#sunset and sunrise
+```{r}
+library(dplyr)
+library(lubridate)
+
+daily <- daily %>%
+  mutate(
+    time_sec = as.numeric(hms(time)),
+    Set_sec = as.numeric(hms(Set)),
+    Rise_sec = as.numeric(hms(Rise)) + 24 * 60 * 60,   # Add 24 hours to handle situations that span a day
+    time_sec = ifelse(time_sec < 12 * 60 * 60, time_sec + 24 * 60 * 60, time_sec), 
+    interval = as.numeric(Rise_sec - Set_sec) / 10,  #gai!! 
+    time_gap = as.numeric(time_sec - Set_sec),  # 
+#time_gap:from set to actual time
+#interval is what we need
+    segment = ifelse(between(time_sec, Set_sec, Rise_sec), time_gap %/% interval + 1, "Not_In"),
+    
+  tag = case_when(
+    segment == "Not_In" & between(time_sec, Set_sec - 60*60, Set_sec) ~ "1h_before_sunset",
+    segment == "Not_In" & between(time_sec, Rise_sec, Rise_sec + 60*60) ~ "1h_after_sunrise",
+    TRUE ~ "Not"
+  )
+  )
+
+daily$segment <- ifelse(daily$segment == "Not_In",daily$tag, daily$segment)
+
+#----interval
+daily_all <- daily %>% 
+  filter(segment != "Not" & segment != "1h_before_sunset" & segment != "1h_after_sunrise")
+average <- mean(daily_all$interval)
+print(average)#1649.72  27.5min #54.9min
+
+daily_summer <- daily %>% 
+  filter(  date >= as.Date("2019-06-01") &
+           date <= as.Date("2019-08-31")
+         )%>%
+  filter(segment != "Not"& segment != "1h_before_sunset" & segment != "1h_after_sunrise")
+average <- mean(daily_summer$interval)
+print(average) #24.2 summer #2905.303 48.4 min
+
+daily_winter <- daily %>% 
+  filter(  date >= as.Date("2019-12-01") &
+           date <= as.Date("2020-02-29")
+         )%>%
+  filter(segment != "Not"& segment != "1h_before_sunset" & segment != "1h_after_sunrise")
+average <- mean(daily_winter$interval)
+print(average) #45.8min winter  #5507.523 91.8min 
+
+daily_spring <- daily %>% 
+  filter(  date >= as.Date("2020-03-01") &
+           date <= as.Date("2020-05-31")
+         )%>%
+  filter(segment != "Not"& segment != "1h_before_sunset" & segment != "1h_after_sunrise")
+average <- mean(daily_spring$interval)
+print(average) #29.6min spring #3556.628 59.3min
+
+daily_autumn <- daily %>% 
+  filter(  date >= as.Date("2019-09-01") &
+           date <= as.Date("2019-11-30")
+         )%>%
+  filter(segment != "Not"& segment != "1h_before_sunset" & segment != "1h_after_sunrise")
+average <- mean(daily_autumn$interval)
+print(average) #34.9min autumn #4199.687 69.9min
+```
+vis-after-before
+```{r}
+library(dplyr)
+
+daily <- daily %>%
+  mutate(sunset_sunrise = case_when(
+    #five time slices before sunset
+    between(time_sec, Set_sec - 36*60, Set_sec) ~ "set_pre_1",
+    between(time_sec, Set_sec - 36*60*2, Set_sec-36*60) ~ "set_pre_2",
+    between(time_sec, Set_sec - 36*60*3, Set_sec-36*60*2) ~ "set_pre_3",
+    between(time_sec, Set_sec - 36*60*4, Set_sec-36*60*3) ~ "set_pre_4",
+    between(time_sec, Set_sec - 36*60*5, Set_sec-36*60*4) ~ "set_pre_5",
+    #five time slices after sunset
+    between(time_sec, Set_sec, Set_sec + 36*60) ~ "set_post_1",
+    between(time_sec, Set_sec + 36*60, Set_sec + 36*60*2) ~ "set_post_2",
+    between(time_sec, Set_sec + 36*60*2, Set_sec + 36*60*3) ~ "set_post_3",
+    between(time_sec, Set_sec + 36*60*3, Set_sec + 36*60*4) ~ "set_post_4",
+    between(time_sec, Set_sec + 36*60*4, Set_sec + 36*60*5) ~ "set_post_5",
+    #five time slices before sunrise
+    between(time_sec, Rise_sec - 36*60, Rise_sec) ~ "rise_pre_1",
+    between(time_sec, Rise_sec - 36*60*2, Rise_sec-36*60) ~ "rise_pre_2",
+    between(time_sec, Rise_sec - 36*60*3, Rise_sec-36*60*2) ~ "rise_pre_3",
+    between(time_sec, Rise_sec - 36*60*4, Rise_sec-36*60*3) ~ "rise_pre_4",
+    between(time_sec, Rise_sec - 36*60*5, Rise_sec-36*60*4) ~ "rise_pre_5",
+    #five time slices after sunrise
+    between(time_sec, Rise_sec, Rise_sec + 36*60) ~ "rise_post_1",
+    between(time_sec, Rise_sec + 36*60, Rise_sec + 36*60*2) ~ "rise_post_2",
+    between(time_sec, Rise_sec + 36*60*2, Rise_sec + 36*60*3) ~ "rise_post_3",
+    between(time_sec, Rise_sec + 36*60*3, Rise_sec + 36*60*4) ~ "rise_post_4",
+    between(time_sec, Rise_sec + 36*60*4, Rise_sec + 36*60*5) ~ "rise_post_5",
+    TRUE ~ "Not_In"
+  ))
+
+```
+
+vis
+```{r}
+library(ggplot2)
+
+# ????????????
+count_data <- table(daily$sunset_sunrise)
+count_data <- as.data.frame(count_data)
+count_data <- count_data[!count_data$Var1 %in% "Not_In", ]
+
+# ??????8???????????????
+gap_size <- 12
+empty_rows <- data.frame(Var1 = factor(paste0("gap_", 1:gap_size), levels = paste0("gap_", 1:gap_size)), Freq = 0)
+count_data <- rbind(count_data[1:10, ], empty_rows, count_data[11:20, ])
+
+# ?????????????????????
+levels <- c("set_pre_5", "set_pre_4", "set_pre_3", "set_pre_2", "set_pre_1", "set_post_1", "set_post_2", "set_post_3", "set_post_4", "set_post_5", paste0("gap_", 1:gap_size), "rise_pre_5", "rise_pre_4", "rise_pre_3", "rise_pre_2", "rise_pre_1", "rise_post_1", "rise_post_2", "rise_post_3", "rise_post_4", "rise_post_5")
+count_data$Var1 <- factor(count_data$Var1, levels = levels)
+#count_data$Freq[count_data$Freq == 0] <- 1e-5
+
+custom_labels <- c(
+  "set_pre_1" = "-0.6h", "set_pre_2" = "-1.2h", "set_pre_3" = "-1.8h", 
+  "set_pre_4" = "-2.4h", "set_pre_5" = "-3.0h", "set_post_1" = "+0.6h", 
+  "set_post_2" = "+1.2h", "set_post_3" = "+1.8h", "set_post_4" = "+2.4h", 
+  "set_post_5" = "+3.0h", "rise_pre_1" = "-0.6h", "rise_pre_2" = "-1.2h", 
+  "rise_pre_3" = "-1.8h", "rise_pre_4" = "-2.4h", "rise_pre_5" = "-3.0h", 
+  "rise_post_1" = "+0.6h", "rise_post_2" = "+1.2h", "rise_post_3" = "+1.8h", 
+  "rise_post_4" = "+2.4h", "rise_post_5" = "+3.0h"
+)
+# ?????????????????????
+count_data$Var1 <- factor(count_data$Var1, levels = levels)
+
+# ?????????????????????????????????
+count_data$Var1_num <- as.numeric(count_data$Var1)
+
+actual_data <- count_data[count_data$Freq != 0, ]
+loess_model <- loess(Freq ~ Var1_num, data = actual_data)
+
+# ?????????????????????????????????
+count_data$Predicted <- predict(loess_model, newdata = count_data)
+
+# ???????????????,??????????????????????????????Var1????????????x?????????,????????????Predicted??????y????????????????????????
+
+known_data <- count_data[count_data$Freq != 0, ]
+
+# 2. ??????spline()??????????????????
+spline_result <- spline(known_data$Var1_num, known_data$Freq, xout = count_data$Var1_num)
+
+# 3. ?????????????????????????????????
+count_data$Interpolated <- spline_result$y
+
+# 4. ??????????????????????????????????????????
+count_data$Final_Value <- ifelse(count_data$Freq != 0, count_data$Freq, count_data$Interpolated)
+
+# ???????????????,??????????????????????????????Var1????????????x?????????,????????????Predicted??????y????????????????????????
+
+#plot
+p_add <- ggplot(count_data, aes(x = Var1, y = Freq)) +
+  geom_bar(stat = "identity", width = 1, colour = "black") +
+  geom_line(aes(y = Final_Value, group = 1), color = "#650021", linetype = "dashed")+
+  geom_vline(aes(xintercept = 5.5), linetype="dashed", color="#650021") +
+  geom_vline(aes(xintercept = 27.5), linetype="dashed", color="#650021") +
+  annotate("text", x = 5.5-1.5, y = max(count_data$Freq) * 0.95, label = "sunset", color="#650021",size=5) +
+  annotate("text", x = 27.5-1.5, y = max(count_data$Freq) * 0.95, label = "sunrise", color="#650021",size=5) +
+  #annotate("text", x = "set_pre_3", y = 0.0001, label = "3h before sunset", color="black", size=3.2, hjust="center",vjust=6)+
+  #annotate("text", x = "set_post_3", y = 0.0001, label = "3h after sunset", color="black", size=3.2, hjust="center",vjust=6)+
+  labs(y = "Call Counts (After sqrt transformation)")+
+  scale_x_discrete(
+    breaks = setdiff(levels, paste0("gap_", 1:gap_size)),
+    labels = custom_labels  
+  )+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1.5, vjust = 3.8,size=9),
+        axis.title.y = element_text(size = 16),
+        axis.title.x = element_blank(),
+        axis.text.y = element_text(size = 16),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  #scale_y_sqrt()
+
+print(p_add)
+#ggsave("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/output_figures/add.png", plot = p_add, width = 10, height = 8, dpi = 600)
+```
+#final_plot
+```{r}
+# ??????????????????
+count_data$group_var <- cumsum(count_data$Freq == 0 & lag(count_data$Freq, default = 0) != 0)
+
+p_add <- ggplot(count_data, aes(x = Var1, y = Final_Value)) +
+  geom_bar(aes(y = Freq), stat = "identity", width = 1, colour = "black") +
+  
+  # ??????????????????
+  geom_line(aes(y = Final_Value, group = 1), linetype = "dashed", color = "#650021", size = 0.8) +
+  
+  # ??????????????????,????????????????????????
+  geom_line(data = subset(count_data, Freq != 0), aes(group = group_var), color = "#650021", size = 0.8) +
+  geom_point(data = subset(count_data, Freq != 0), color = "#650021", size = 3) + 
+  
+  geom_vline(aes(xintercept = 5.5), linetype="dashed", color="#650021") +
+  geom_vline(aes(xintercept = 27.5), linetype="dashed", color="#650021") +
+  annotate("text", x = 5.5-1.5, y = max(count_data$Freq) * 0.95, label = "sunset", color="#650021",size=6) +
+  annotate("text", x = 27.5-1.5, y = max(count_data$Freq) * 0.95, label = "sunrise", color="#650021",size=6) +
+  annotate("text", x = 15, y = 2200, 
+           label = "Interpolated Line", 
+           size = 5, color="#650021", fontface = "italic")+
+  labs(y = "Call Counts (After Sqrt Transformation)") +
+  scale_x_discrete(
+    breaks = setdiff(levels, paste0("gap_", 1:gap_size)),
+    labels = custom_labels  
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1.1, vjust = 2.6,size=8), # ???x?????????????????????
+        plot.margin = unit(c(1, 1, 3, 1), "lines") , # ???????????????
+        axis.title.y = element_text(size = 16),
+        axis.title.x = element_blank(),
+        axis.text.y = element_text(size = 16),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) #+
+  #scale_y_sqrt()
+
+print(p_add)
+
+ggsave("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/output_figures/add_new.png", plot = p_add, width = 10, height = 8, dpi = 600)
+```
+
+
+
+```{r}
+# ?????????????????????????????????dplyr???
+library(dplyr)
+
+selected_rows <- daily %>%
+  filter(sunset_sunrise == "rise_post_1")
+
+```
+
+
+
+#vis-total
+```{r}
+# 将segment转换为字符型（如果需要）
+daily$segment <- as.character(daily$segment)
+
+# 创建一个新的数据框，以统计每个segment的频数
+daily_count <- daily %>%
+  filter(segment != "Not")%>%
+  group_by(segment) %>%
+  summarise(count = n())
+
+# 创建一个顺序向量，用于对x轴进行排序
+order <- c("1h_before_sunset", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "1h_after_sunrise")
+
+# 在daily_count数据框中添加一个名为order的列
+daily_count$order <- match(daily_count$segment, order)
+
+sunset_line <- (which(order == "1h_before_sunset") + which(order == "1")) / 2
+sunrise_line <- (which(order == "10") + which(order == "1h_after_sunrise")) / 2
+
+new_labels <- c("1h_before_sunset", "10%", "20%","30%","40%","50%","60%","70%","80%","90%","100%","1h_after_sunrise") 
+
+p_sun <- ggplot(daily_count, aes(x = reorder(segment, order), y = count)) +
+  geom_bar(stat = "identity",width = 1, colour = "black") +#fill="#59656d",
+  #geom_smooth(method = "lm", se = FALSE, color = "red") +
+  geom_point(data = daily_count, aes(x = reorder(segment, order), y = count),shape = 21, color = '#650021', size = 3,fill = '#650021' ) +
+  geom_line(data = daily_count, aes(x = reorder(segment, order), y = count), color = '#650021', group = 1,linewidth=0.8)+
+  geom_vline(xintercept = sunset_line, linetype = "dashed", color = "black",linewidth=0.6)+
+  geom_vline(xintercept = sunrise_line, linetype = "dashed", color = "black",linewidth=0.6) +
+  annotate("text", x = which(order == "1") + 0.8, y = max(daily_count$count) + 9000, label = "sunset", hjust = 1,size = 7) +
+  annotate("text", x = which(order == "10") - 0.8, y = max(daily_count$count) + 9000, label = "sunrise", hjust = 0,size =7) +
+  labs(x = "Intervals of Night (From Sunset to Sunrise) ", y = "Call Counts (Untransformed)")+
+  scale_x_discrete(labels = new_labels) + 
+  theme_minimal()+
+  theme(plot.title = element_text(size = 2),#title of plot
+        axis.title.x = element_text(size = 18),#title of axis
+        axis.title.y = element_text(size = 18),
+        axis.text.y = element_text(size = 16),# text of axis
+        axis.text.x = element_text(angle = 45, hjust = 1,size = 16),
+        legend.title = element_text(size = 16),
+        legend.text = element_text(size = 14),
+        legend.position = c(0.6, 0.8),#left bottomn (0,0)
+        legend.background = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA, size=0.6))
+
+p_sun <- p_sun + 
+  annotate("text", x = order[5], y = 300000, label = "Average Interval = 54.9 min", hjust = 0, size = 7, colour = "#650021")
+
+
+print(p_sun)
+ggsave("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/output_figures/daily_sun_new.png", plot = p_sun, width = 10, height = 10, dpi = 600)
+
+table(daily$segment)
+
+```
+vis-Season(old)
+```{r}
+#6 7 8
+daily_count_summer <- daily %>% 
+  filter(  date >= as.Date("2019-06-01") &
+           date <= as.Date("2019-08-31")
+         )%>%
+  filter(segment != "Not")%>%
+  group_by(segment) %>%
+  summarise(count = n())
+#9 10 11
+daily_count_autumn <- daily %>% 
+  filter(  date >= as.Date("2019-09-01") &
+           date <= as.Date("2019-11-30")
+         )%>%
+  filter(segment != "Not")%>% #wrong!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  group_by(segment) %>%
+  summarise(count = n())
+#12 1 2
+daily_count_winter <- daily %>% 
+  filter(  date >= as.Date("2019-12-01") &
+           date <= as.Date("2020-02-29")
+         )%>%
+  filter(segment != "Not")%>%
+  group_by(segment) %>%
+  summarise(count = n())
+#3 4 5
+daily_count_spring <- daily %>% 
+  filter(  date >= as.Date("2020-03-01") &
+           date <= as.Date("2020-05-31")
+         )%>%
+  filter(segment != "Not")%>%
+  group_by(segment) %>%
+  summarise(count = n())
+#--------
+library(ggplot2)
+
+create_plot <- function(daily_count,title) {
+
+  order <- c("1h_before_sunset", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "1h_after_sunrise")
+
+  daily_count$order <- match(daily_count$segment, order)
+
+  sunset_line <- (which(order == "1h_before_sunset") + which(order == "1")) / 2
+  sunrise_line <- (which(order == "20") + which(order == "1h_after_sunrise")) / 2
+
+  new_labels <- c("1h_before_sunset","5", "10", "15","20","25","30","35","40","45","50","55","60","65","70","75","80","85","90","95","100","1h_after_sunrise") 
+  
+p_sun <- ggplot(daily_count, aes(x = reorder(segment, order), y = count)) +
+    #geom_bar(stat = "identity",fill="#59656d") +
+    geom_point(data = daily_count, aes(x = reorder(segment, order), y = count),shape = 21, color = '#650021', size = 2,fill = '#650021' ) +
+    geom_line(data = daily_count, aes(x = reorder(segment, order), y = count), color = '#650021', group = 1)+
+    geom_vline(xintercept = sunset_line, linetype = "dashed", color = "black")+
+    geom_vline(xintercept = sunrise_line, linetype = "dashed", color = "black") +
+    annotate("text", x = which(order == "1") + 2.2, y = 100000, label = "sunset", hjust = 1,size = 4) +
+    annotate("text", x = which(order == "20") - 2.3, y = 100000, label = "sunrise", hjust = 0,size =4) +
+    #annotate("text", x = 10, y = 10, label = annotation_text, size = 4) +
+    labs(x = title, y = "Calls Count")+
+    scale_y_continuous(limits = c(0, 100000)) +
+    scale_x_discrete(labels = new_labels) + 
+    theme_minimal()+
+    theme(plot.title = element_blank(),
+          axis.title.x = element_text(size = 14),
+          axis.title.y = element_text(size = 10),
+          axis.text.y = element_text(size = 8),
+          axis.text.x = element_text(angle = 45, hjust = 1,size = 8),
+          legend.title = element_text(size = 8),
+          legend.text = element_text(size = 6),
+          legend.position = c(0.6, 0.8),
+          legend.background = element_blank())
+
+  return(p_sun)
+}
+
+library(gridExtra)
+
+p1 <- create_plot(daily_count_summer,"Summer")
+p1 <- p1 + 
+  annotate("text", x = order[7], y = 90000, label = "Interval = 24.2 min", hjust = 0, size = 4, colour = "#650021")
+
+p2 <- create_plot(daily_count_autumn,"Autumn")
+p2 <- p2 + 
+  annotate("text", x = order[7], y = 90000, label = "Interval = 34.9 min", hjust = 0, size = 4, colour = "#650021")
+
+p3 <- create_plot(daily_count_spring,"Spring")
+p3 <- p3 + 
+  annotate("text", x = order[7], y = 90000, label = "Interval = 29.6 min", hjust = 0, size = 4, colour = "#650021")
+
+p4 <- create_plot(daily_count_winter,"Winter")
+p4 <- p4 + 
+  annotate("text", x = order[7], y = 90000, label = "Interval = 45.8 min", hjust = 0, size = 4, colour = "#650021")
+
+
+#grid.arrange(p1, p2, p3, p4, nrow = 2)
+
+# Create a grob
+grid_arrange_shared_legend <- arrangeGrob(p1, p2, p3, p4, nrow = 2)
+
+# Save the plot to a PDF
+ggsave("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/output_figures/daily_season.png", grid_arrange_shared_legend, width = 10, height = 8, dpi = 300)
+
+
+#29.6min spring 45.8min winter 34.9min autumn
+
+```
+
+
+#Species total
+```{r}
+#daily_species <- daily %>%
+#  filter(segment != "Not") %>%
+ # group_by(segment) %>%
+  #summarise(
+   # count = n(),
+    #Pipistrellus_pipistrellus = sum(type == 'Pipistrellus pipistrellus'),
+    #Pipistrellus_nathusii = sum(type == 'Pipistrellus nathusii'),
+    #Pipistrellus_pygmaeus = sum(type == 'Pipistrellus pygmaeus')
+  #)
+#daily_species_long <- daily_species %>%
+  #pivot_longer(cols = starts_with("Pipistrellus"), 
+              # names_to = "type", 
+               #values_to = "count")
+types_to_include <- c('Pipistrellus pipistrellus', 'Pipistrellus nathusii', 'Pipistrellus pygmaeus')
+daily_species <- daily %>%
+  filter(segment != "Not" & type %in% types_to_include) %>%
+  group_by(segment, type) %>%
+  summarise(
+    count = n(),
+    .groups = "drop"
+  )
+
+# ???daily_species??????????????????????????????order??????
+daily_species$order <- match(daily_species$segment, order)
+colors <- c("Pipistrellus pipistrellus" = "black", 
+            "Pipistrellus nathusii" = "#650021", 
+            "Pipistrellus pygmaeus" = "#ACB9CA")
+p_species <- ggplot(daily_species, aes(x = reorder(segment, order), y = count, group = type)) +
+  #geom_smooth(method = "lm", se = FALSE, color = "red") +
+  geom_point(aes(shape = type, color = type), size = 3) +
+  geom_line(aes(linetype = type, color = type),size =0.8) +
+  geom_vline(xintercept = sunset_line, linetype = "dashed", color = "black") +
+  geom_vline(xintercept = sunrise_line, linetype = "dashed", color = "black") +
+  annotate("text", x = which(order == "1") + 0.8, y = max(daily_species$count) + 9000, label = "sunset", hjust = 1,size = 7) +
+  annotate("text", x = which(order == "10") - 0.8, y = max(daily_species$count) + 9000, label = "sunrise", hjust = 0,size =7) +
+  labs(x = "Intervals of Night (From Sunset to Sunrise)", y = "Call Counts (Untransformed)", color = "Species", shape = "Species", linetype = "Species") +
+  scale_x_discrete(labels = new_labels) + 
+  scale_color_manual(values = colors) + 
+  theme_minimal() +
+  theme(plot.title = element_text(size = 2),#title of plot
+        axis.title.x = element_text(size = 18),#title of axis
+        axis.title.y = element_text(size = 18),
+        axis.text.y = element_text(size = 16),# text of axis
+        axis.text.x = element_text(angle = 45, hjust = 1,size = 16),
+        legend.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.position = c(0.6, 0.8),#left bottomn (0,0)
+        legend.background = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA, size=0.6)
+)
+
+print(p_species)
+
+ggsave("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/output_figures/daily_species_new.png", plot = p_species, width = 10, height = 8, dpi = 300)
+
+```
+#seasons
+```{r}
+types_to_include <- c('Pipistrellus pipistrellus', 'Pipistrellus nathusii', 'Pipistrellus pygmaeus')
+#6 7 8
+species_summer <- daily %>% 
+  filter(  date >= as.Date("2019-06-01") &
+           date <= as.Date("2019-08-31")
+         )%>%
+  filter(segment != "Not" & type %in% types_to_include)%>%
+  group_by(segment, type) %>%
+  summarise(count = n(),
+    .groups = "drop")
+
+result <- species_summer %>%
+  group_by(type) %>%
+  summarise(mean_value = mean(count, na.rm = TRUE),
+            sd_value = sd(count, na.rm = TRUE)) %>%
+  mutate(CV = sd_value / mean_value * 100)  # CV ?????? 100 ????????????????????????
+
+print(result)
+#9 10 11
+species_autumn <- daily %>% 
+  filter(  date >= as.Date("2019-09-01") &
+           date <= as.Date("2019-11-30")
+         )%>%
+  filter(segment != "Not" & type %in% types_to_include)%>%
+  group_by(segment, type) %>%
+  summarise(count = n(),
+    .groups = "drop")
+
+result <- species_autumn %>%
+  group_by(type) %>%
+  summarise(mean_value = mean(count, na.rm = TRUE),
+            sd_value = sd(count, na.rm = TRUE)) %>%
+  mutate(CV = sd_value / mean_value * 100)  # CV ?????? 100 ????????????????????????
+
+print(result)
+#12 1 2
+species_winter <- daily %>% 
+  filter(  date >= as.Date("2019-12-01") &
+           date <= as.Date("2020-02-29")
+         )%>%
+  filter(segment != "Not" & type %in% types_to_include)%>%
+  group_by(segment, type) %>%
+  summarise(count = n(),
+    .groups = "drop")
+
+result <- species_winter %>%
+  group_by(type) %>%
+  summarise(mean_value = mean(count, na.rm = TRUE),
+            sd_value = sd(count, na.rm = TRUE)) %>%
+  mutate(CV = sd_value / mean_value * 100)  # CV ?????? 100 ????????????????????????
+
+print(result)
+
+#3 4 5
+species_spring <- daily %>% 
+  filter(  date >= as.Date("2020-03-01") &
+           date <= as.Date("2020-05-31")
+         )%>%
+  filter(segment != "Not" & type %in% types_to_include)%>%
+  group_by(segment, type) %>%
+  summarise(count = n(),
+    .groups = "drop")
+
+create_plot_species <- function(daily_species,title) {
+
+    order <- c("1h_before_sunset", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "1h_after_sunrise")
+  
+    daily_species$order <- match(daily_species$segment, order)
+  
+    sunset_line <- (which(order == "1h_before_sunset") + which(order == "1")) / 2
+    sunrise_line <- (which(order == "10") + which(order == "1h_after_sunrise")) / 2
+  
+    new_labels <- c("1h_before_sunset", "10%", "20%","30%","40%","50%","60%","70%","80%","90%","100%","1h_after_sunrise") 
+    
+  colors <- c("Pipistrellus pipistrellus" = "black", 
+              "Pipistrellus nathusii" = "#650021", 
+              "Pipistrellus pygmaeus" = "#ACB9CA")
+  p_species <- ggplot(daily_species, aes(x = reorder(segment, order), y = count, group = type)) +
+    #geom_smooth(method = "lm", se = FALSE, color = "red") +
+    geom_point(aes(shape = type, color = type), size = 3) +
+    geom_line(aes(linetype = type, color = type),size=0.8) +
+    geom_vline(xintercept = sunset_line, linetype = "dashed", color = "black") +
+    geom_vline(xintercept = sunrise_line, linetype = "dashed", color = "black") +
+    annotate("text", x = which(order == "1") + 1.4, y = 175000, label = "sunset", hjust = 1,size = 4.5) +
+    annotate("text", x = which(order == "10") - 1.4, y = 175000, label = "sunrise", hjust = 0,size =4.5) +
+    #scale_y_log10()+
+    labs(x = title, y = "Call Counts (Untransformed)", color = "Species", shape = "Species", linetype = "Species") +
+    scale_y_continuous(limits = c(0, 175000)) +
+    scale_x_discrete(labels = new_labels) + 
+    scale_color_manual(values = colors) + 
+    theme_minimal() +
+    theme(plot.title = element_blank(),#title of plot
+          axis.title.x = element_text(size = 20),#title of axis
+          axis.title.y = element_text(size = 16),
+          axis.text.y = element_text(size = 14),# text of axis
+          axis.text.x = element_text(angle = 45, hjust = 1,size = 14),
+          legend.title = element_blank(),
+          legend.text = element_blank(),
+          legend.position="none",
+          legend.background = element_blank(),
+          panel.border = element_rect(colour = "black", fill=NA, size=0.6))
+
+
+  return(p_species)
+}
+library(gridExtra)
+
+p1 <- create_plot_species(species_summer,"Summer")
+p1 <- p1 + 
+  annotate("text", x = order[5], y = 130000, label = "Average Interval = 48.4 min", hjust = 0, size = 4, colour = "#650021", fontface = "bold")
+
+p2 <- create_plot_species(species_autumn,"Autumn")
+p2 <- p2 + 
+  annotate("text", x = order[5], y = 130000, label = "Average Interval = 69.6 min", hjust = 0, size = 4, colour = "#650021", fontface = "bold")
+
+p3 <- create_plot_species(species_spring,"Spring")
+p3 <- p3 + 
+  annotate("text", x = order[5], y = 130000, label = "Average Interval = 59.3 min", hjust = 0, size = 4, colour = "#650021", fontface = "bold")
+
+p4 <- create_plot_species(species_winter,"Winter")
+p4 <- p4 + 
+  annotate("text", x = order[5], y = 130000, label = "Average Interval = 91.8 min", hjust = 0, size = 4, colour = "#650021", fontface = "bold")
+
+# Create a grob
+grid_arrange_shared_legend <- arrangeGrob(p1, p2, p3, p4, nrow = 2)
+
+# Save the plot to a PDF
+ggsave("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/output_figures/daily_season_species_new.png", grid_arrange_shared_legend, width = 10, height = 10, dpi = 300)
+
+#--------
+```
+

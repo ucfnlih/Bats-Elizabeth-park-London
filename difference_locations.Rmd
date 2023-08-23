@@ -1,0 +1,392 @@
+---
+title: "Untitled"
+author: "WENDI"
+date: "2023-07-30"
+output: html_document
+---
+```{r}
+library(tidyverse)
+library(tidyr)
+library(dplyr)
+library(scales) # for date formatting
+library(ggplot2)
+library(data.table)
+library(lubridate)
+library(suncalc)
+Sys.setlocale("LC_TIME", "English")
+library(sf)
+library(raster)
+library(sp)
+library(dunn.test)
+library(readr)
+library(ggspatial)
+
+```
+
+```{r}
+complete_date <- read.csv("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/anlaysis_file/complete_date.csv")
+complete_date$date <- as.Date(complete_date$date)
+
+locations <- complete_date %>%
+  filter(sensor_number %in% c(2, 3, 4, 5, 6, 7, 9, 10, 12, 13) &
+           date >= as.Date("2019-06-01") &
+           date <= as.Date("2020-05-31")
+         )
+shapefile <- st_read("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/raw_data/habitatdata/QEOP_Habitat_Diss.shp")
+raster_data <- raster("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/raw_data/habitatdata/QEOP_Habitat_10cm.tif")
+plot(shapefile)
+
+#ggplot() +
+ # geom_sf(data = shapefile, aes(fill = "geomertry")) +
+  #geom_sf_text(data = shapefile, aes(label = "QEOP_Hab"), size = 3)
+```
+#location plot1
+```{r}
+sensors <- data.frame(
+  sensor_id = c(2,3,4,5,6,7,9,10,12,13), 
+  lon = c(-0.01093, -0.01736, -0.00905,-0.01294,-0.01075,-0.01428,-0.01726,-0.01799,-0.01739,-0.01596),
+  lat = c(51.53981, 51.53659, 51.53663,51.53641,51.53757,51.54115,51.54477,51.54560,51.54914,51.54821)
+)
+
+shapefile <- st_make_valid(shapefile)
+shapefile <- st_transform(shapefile, crs = 27700)
+
+sensors <- st_as_sf(sensors, coords = c("lon", "lat"), crs = 4326)
+sensors <- st_transform(sensors, st_crs(shapefile)$epsg)  
+
+my_colors <- c("Parkland" = "#806000", "Grassland" = "#E2EFDA", "Water" = "#B4C6E7", "Trees" = "#375623","NA"="#D0CECE")
+my_labels <- c("Parkland" = "Parkland", "Grassland" = "Grassland", "Water" = "Open Water","Trees" = "Trees and Scrub","NA" = "NA") 
+
+p <- ggplot() +
+  geom_sf(data = shapefile, aes(fill = QEOP_Hab)) + 
+  #geom_sf(data = sensors, color = "#C00000", size = 5) +  # 添加传感器的位置
+  geom_sf_text(data = sensors, aes(label = sensor_id), color = "white",size=3) + 
+  scale_fill_manual(values = my_colors,labels = my_labels, breaks = c("Parkland", "Grassland", "Water", "Trees", "NA")) +
+  theme_minimal() +
+  labs(fill = "Habitat type(General)") + 
+  theme(
+    plot.title = element_text(size = 22),#title of plot
+    axis.title.x = element_blank(),#title of axis
+    axis.title.y = element_blank(),
+    axis.text.y = element_text(size = 12),# text of axis
+    axis.text.x = element_text(angle = 45, hjust = 1,size = 12),
+    legend.title = element_text(size = 16),
+    legend.text = element_text(size = 14),
+    legend.position = "right",
+    plot.margin = margin(1, 1, 2, 2, "cm"),
+    panel.border = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid"),#修改此行
+    legend.background = element_blank(),
+    #legend.spacing.y = unit(5, "cm") 
+  )  
+
+print(p)
+ggsave("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/output_figures/habitat_general.png", plot = p, width = 10, height = 8, dpi = 600)
+```
+plot2
+```{r}
+sensors <- data.frame(
+  sensor_id = c(2,3,4,5,6,7,9,10,12,13), 
+  lon = c(-0.01093, -0.01736, -0.00905,-0.01294,-0.01075,-0.01428,-0.01726,-0.01799,-0.01739,-0.01596),
+  lat = c(51.53981, 51.53659, 51.53663,51.53641,51.53757,51.54115,51.54477,51.54560,51.54914,51.54821)
+)
+
+shapefile <- st_make_valid(shapefile)
+shapefile <- st_transform(shapefile, crs = 27700)
+
+sensors <- st_as_sf(sensors, coords = c("lon", "lat"), crs = 4326)
+sensors <- st_transform(sensors, st_crs(shapefile)$epsg)  
+
+#my_colors <- c("Parkland" = "#806000", "Grassland" = "#E2EFDA", "Water" = "#B4C6E7", "Trees" = "#375623","NA"="#D0CECE")
+#my_labels <- c("Parkland" = "Parkland", "Grassland" = "Grassland", "Water" = "Open Water","Trees" = "Trees and Scrub","NA" = "NA") 
+BAP_Habita_colors <- c("Allotments" = "#E2EFDA", "Brownfield" = "#C6E0B4", "Living Roofs" = "#C9C9C9","Parks, Squares & Amenity Places"="#C65911","Reed Bed"="#BDD7EE","Rivers & Streams"="#2F75B5","Species Rich Grassland"="#70AD47","Standing Open Water"="#D9E1F2","Temporary Landscapes"="#7B7B7B","Trees & Scrub"="#375623","Wet Woodland"="#7030A0")
+
+p <- ggplot() +
+  geom_sf(data = shapefile, aes(fill = BAP_Habita)) + 
+  #geom_sf(data = sensors, color = "#C00000", size = 7) +  # 添加传感器的位置
+  geom_sf_text(data = sensors, aes(label = sensor_id), color = "white") + 
+  scale_fill_manual(values = BAP_Habita_colors) +
+  theme_minimal() +
+  labs(fill = "Habitat type (Detailed)") + 
+  theme(
+    plot.title = element_text(size = 22),#title of plot
+    axis.title.x = element_blank(),#title of axis
+    axis.title.y = element_blank(),
+    axis.text.y = element_text(size = 12),# text of axis
+    axis.text.x = element_text(angle = 45, hjust = 1,size = 12),
+    legend.title = element_text(size = 16),
+    legend.text = element_text(size = 14),
+    legend.position = "right",
+    plot.margin = margin(1, 1, 2, 2, "cm"),
+    panel.border = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid"),#修改此行
+    legend.background = element_blank(),
+    #legend.spacing.y = unit(5, "cm") 
+  )  
+
+print(p)
+ggsave("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/output_figures/habitat.png", plot = p, width = 10, height = 8, dpi = 600)
+```
+
+
+#pair comparison
+```{r}
+library(dplyr)
+
+pair <- locations %>%
+  mutate(
+    habitat_type = case_when(
+      sensor_number %in% c(4, 5, 6, 7) ~ "Open Water",
+      sensor_number %in% c(2, 3, 13) ~ "Grassland",
+      sensor_number %in% c(9, 10, 12) ~ "Trees and Scrub",
+      TRUE ~ "other"
+    )
+  )
+
+pair_avg <- pair %>%
+  group_by(habitat_type,date) %>%
+  summarise(avg_calls = mean(calls_number_clean, na.rm = TRUE),
+  Pipistrellus_pipistrellus = mean(Pipistrellus.pipistrellus, na.rm = TRUE),
+  Pipistrellus_nathusii = mean(Pipistrellus.nathusii, na.rm = TRUE),
+  Pipistrellus_pygmaeus = mean(Pipistrellus.pygmaeus, na.rm = TRUE), .groups = "drop")
+pair_avg <- pair_avg %>%
+  mutate_if(is.numeric, round)
+
+#seasons
+pair_spring <- pair_avg %>%
+  filter( date >= as.Date("2020-03-01") &
+           date <= as.Date("2020-05-31"))
+
+pair_summer <- pair_avg %>% 
+  filter( date >= as.Date("2019-06-01") &
+           date <= as.Date("2019-08-31"))
+
+pair_autumn <- pair_avg %>% 
+  filter( date >= as.Date("2019-09-01") &
+           date <= as.Date("2019-11-30"))
+
+pair_winter <- pair_avg %>% 
+  filter( date >= as.Date("2019-12-01") &
+           date <= as.Date("2020-02-29"))
+```
+kruskal.test
+```{r}
+kruskal_result <- kruskal.test(avg_calls ~ habitat_type, data = pair_avg)
+kruskal_spring <- kruskal.test(avg_calls ~ habitat_type, data = pair_spring)
+kruskal_summer <- kruskal.test(avg_calls ~ habitat_type, data = pair_summer)
+kruskal_autumn <- kruskal.test(avg_calls ~ habitat_type, data = pair_autumn)
+kruskal_winter <- kruskal.test(avg_calls ~ habitat_type, data = pair_winter)
+# 打印Kruskal-Wallis检验结果
+print(kruskal_winter)
+```
+```{r}
+pairwise_result <- dunn.test(pair_avg$avg_calls, g = pair_avg$habitat_type, method = "bonferroni")
+pairwise_spring <- dunn.test(pair_spring$avg_calls, g = pair_spring$habitat_type, method = "bonferroni")
+pairwise_summer <- dunn.test(pair_summer$avg_calls, g = pair_summer$habitat_type, method = "bonferroni")
+pairwise_autumn <- dunn.test(pair_autumn$avg_calls, g = pair_autumn$habitat_type, method = "bonferroni")
+pairwise_winter <- dunn.test(pair_winter$avg_calls, g = pair_winter$habitat_type, method = "bonferroni")
+
+# 打印Dunn's pairwise comparisons结果
+print(pairwise_winter)
+
+```
+
+
+#chi-square 
+```{r}
+sensor_total <- read.csv("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/raw_data/sensor_total_new.csv")
+sensor_filter <- sensor_total %>%
+  filter(sensor_number %in% c(2, 3, 4, 5, 6, 7, 9, 10, 12, 13) &
+           date >= as.Date("2019-06-01") &
+           date <= as.Date("2020-05-31")
+         )
+sensor_filter <- sensor_filter %>%
+  filter(type %in% c("Pipistrellus pipistrellus", "Pipistrellus nathusii", "Pipistrellus pygmaeus"))
+sensor_filter <- sensor_filter %>%
+  mutate(
+    habitat_type = case_when(
+      sensor_number %in% c(4, 5, 6, 7) ~ "Open Water",
+      sensor_number %in% c(2, 3, 13) ~ "Grassland",
+      sensor_number %in% c(9, 10, 12) ~ "Trees and Scrub",
+      TRUE ~ "other"
+    )
+  )
+
+```
+
+```{r}
+bat_species <- unique(sensor_filter$type)
+
+for (species in bat_species) {
+  subset_data <- sensor_filter[sensor_filter$type == species, ]
+
+  bat_tab <- table(subset_data$type, subset_data$habitat_type)
+  
+  chisq_result <- chisq.test(bat_tab)
+
+  print(paste("Chi-square test for", species))
+  print(chisq_result)
+}
+
+
+
+```
+
+
+
+#Vis
+```{r}
+# 先为 habitat_type 创建一个颜色映射
+sensor_summary <- pair %>%
+  group_by(sensor_number) %>%
+  summarise(total_calls = sum(calls_number_clean, na.rm = TRUE))
+
+habitat_colors <- c("Grassland" = "#E2EFDA", "Open Water" =  "#B4C6E7", "Trees and Scrub" = "#375623")
+
+# 将 habitat_type 添加到 sensor_summary 中
+sensor_summary <- sensor_summary %>%
+  left_join(pair %>% select(sensor_number, habitat_type) %>% distinct(), by = "sensor_number")
+
+p <- ggplot() +
+  geom_bar(data = sensor_summary, aes(x = reorder(sensor_number, -total_calls), y = total_calls, fill = habitat_type), stat = "identity") +
+  scale_fill_manual(values = habitat_colors) +
+  geom_point(data = sensor_summary, 
+             aes(x = reorder(sensor_number, -total_calls), y = -50000, color = habitat_type), 
+             size = 9, alpha = 0.5) +
+  scale_color_manual(values = habitat_colors) +
+  geom_text(data = sensor_summary, aes(x = reorder(sensor_number, -total_calls), y = -25000, label = sensor_number), vjust = 1.5) +
+  labs(x = "Sensor Number", y = "Calls Sequence") +
+  theme(
+        axis.title.x = element_text(size = 18),#title of axis
+        axis.title.y = element_text(size = 18),
+        axis.text.y = element_text(size = 16),# text of axis
+        axis.text.x = element_blank(),
+        legend.title = element_text(size = 16),
+        legend.text = element_text(size = 14),
+        #legend.position = c(0.6, 0.8),#left bottomn (0,0)
+        legend.background = element_blank(),
+        panel.background = element_rect(fill = "white"),
+               panel.grid.major = element_line(colour = "grey90"), # 控制主要网格线的颜色
+        panel.grid.minor = element_line(colour = "grey90"))
+        #panel.background = element_blank())
+
+print(p)
+
+ggsave("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/output_figures/locations_sensors.png", plot = p, width = 10, height = 8, dpi = 600)
+```
+
+
+```{r}
+# 加载需要的库
+# 加载需要的库
+library(ggplot2)
+library(ggpattern)
+library(dplyr)
+
+# 定义颜色映射
+habitat_colors <- c("Grassland" = "#E2EFDA", "Open Water" =  "#B4C6E7", "Trees and Scrub" = "#375623")
+
+# 生成每个habitat_type下的type数量的汇总数据
+type_count <- sensor_filter %>%
+  group_by(habitat_type, type) %>%
+  summarise(count = n())
+type_count <- type_count %>%
+  rename(Species = type)
+type_count <- type_count %>%
+  group_by(Species) %>%
+  mutate(percentage = count / sum(count) * 100)
+
+x_labels <- c("Grassland", "Open Water", "Trees and Scrub")  
+
+p <- ggplot(type_count, aes(x = habitat_type, y = percentage, fill = habitat_type, pattern = Species)) +
+    geom_bar_pattern(stat = 'identity', 
+                   position = 'dodge',  # 调整线条模式
+                   pattern_color = "white",  # 调整线条颜色
+                   pattern_density = 0.05,  # 调整线条的密度
+                   pattern_angle = 45,  # 调整线条的角度
+                   pattern_spacing = 0.02,  # 调整线条间的间距
+                   pattern_key_scale_factor = 0.5) +
+  scale_fill_manual(values = habitat_colors) +
+  #scale_y_log10() +  # 添加这一行来进行对数变换
+  scale_x_discrete(labels = x_labels) + 
+  labs(x = 'Habitat Type', y = 'Count (Percentage within species)', fill = 'Habitat Type', pattern = 'Species') +
+  theme_minimal()+
+  theme(
+        axis.title.x = element_blank(),#title of axis
+        axis.title.y = element_text(size = 18),
+        axis.text.y = element_text(size = 16),# text of axis
+        axis.text.x = element_text(size = 16, vjust = 0),
+        legend.title = element_text(size = 16),
+        legend.text = element_text(size = 14))+
+  guides(fill = FALSE)
+        #legend.position = c(0.6, 0.8),#left bottomn (0,0)
+        #legend.background = element_rect(fill = "lightblue"))
+        #panel.background = element_rect(fill = "white"),
+           #    panel.grid.major = element_line(colour = "grey90"), # 控制主要网格线的颜色
+        #panel.grid.minor = element_line(colour = "grey90"))
+        #panel.background = element_blank())
+
+print(p)
+
+ggsave("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/output_figures/locations_species.png", plot = p, width = 10, height = 8, dpi = 600)
+```
+
+
+```{r}
+install.packages("spdep") # 如果你还没有安装spdep包的话
+install.packages(c("ggplot2", "ggraph", "igraph"))
+
+library(spdep)
+sites <- data.frame(
+  sensor_id = c(2,3,4,5,6,7,9,10,12,13), 
+  lon = c(-0.01093, -0.01736, -0.00905,-0.01294,-0.01075,-0.01428,-0.01726,-0.01799,-0.01739,-0.01596),
+  lat = c(51.53981, 51.53659, 51.53663,51.53641,51.53757,51.54115,51.54477,51.54560,51.54914,51.54821)
+)
+sites$value <- sensor_summary$total_calls
+
+coords <- cbind(sites$lon, sites$lat)
+nb <- knn2nb(knearneigh(coords, k=2))
+listw <- nb2listw(nb, style="W")
+
+# 计算Moran's I
+moran.test(sites$value, listw)
+install.packages("spdep")
+library(spdep)
+png("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/output_figures/moran_i.png", width = 800, height = 600)
+moran.plot(sites$value, listw)
+dev.off()
+```
+```{r}
+library(ggplot2)
+
+moran_values <- moran.mc(sites$value, listw, nsim = 999)
+x <- sites$value - mean(sites$value)
+y <- lag.listw(listw, sites$value) - mean(sites$value)
+
+df <- data.frame(x = x, y = y)
+
+ggplot(df, aes(x = x, y = y)) +
+  geom_point() +
+  geom_smooth(method = "lm", col = "red") +
+  labs(x = "Standardized values", y = "Spatially lagged standardized values") +
+  theme_minimal()
+
+
+
+```
+
+
+
+
+
+google map 
+```{r}
+# install.packages("ggmap")
+library(ggmap)
+register_google(key = "AIzaSyDM6ZzUZ52dpBdwLpC0vpA_phnOTyOfgbo")
+
+map_data <- get_map(location = "Queen Elizabeth Olympic Park", zoom = 14, source = "google", maptype = "terrain")
+
+ggmap(map_data)
+
+```
+
+

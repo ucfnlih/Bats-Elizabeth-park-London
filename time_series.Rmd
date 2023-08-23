@@ -1,0 +1,131 @@
+---
+title: "Untitled"
+author: "WENDI"
+date: "2023-07-05"
+output: html_document
+---
+```{r}
+library(tidyverse)
+library(tidyr)
+library(dplyr)
+library(scales) # for date formatting
+library(ggplot2)
+library(data.table)
+library(lubridate)
+Sys.setlocale("LC_TIME", "English")
+```
+
+```{r}
+complete_date <- read.csv("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/anlaysis_file/complete_date.csv")
+total <- read.csv("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/raw_data/sensor_total_new.csv")
+complete_date$date <- as.Date(complete_date$date)
+total$date <- as.Date(total$date)
+
+sensor_12 <- complete_date %>%
+  filter(sensor_number %in% c(12) &
+           date >= as.Date("2019-06-01") &
+           date <= as.Date("2023-05-31")
+         )
+
+sensor_12_vis <- total %>%
+  filter(sensor_number %in% c(12) &
+           date >= as.Date("2019-06-01") &
+           date <= as.Date("2023-05-31")
+         )
+```
+
+```{r}
+library(dplyr)
+library(lubridate)
+
+# ????????????????????????
+sensor_12_vis$year <- year(sensor_12_vis$date)
+
+# ???????????????????????????????????????
+sensor_12_vis_summary <- sensor_12_vis %>%
+  group_by(year, type) %>%
+  summarise(count = n())
+
+
+# ??????????????????????????????????????????
+library(tidytext)
+
+p <- ggplot(sensor_12_vis_summary, aes(x = reorder_within(type, count, year), y = count, fill = type)) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7) +
+  scale_y_log10(labels = scales::comma) +
+  scale_x_reordered() +
+  scale_fill_brewer(palette = "BuGn") +#BuGn
+  coord_flip() +
+  labs(x = "Specise", y = "Count (log)") +
+  theme_minimal() +
+  theme(
+    #plot.title = element_text(size = 22),#title of plot
+    axis.title.x = element_blank(),#title of axis
+    axis.title.y = element_blank(),
+    #axis.text.y = element_text(size = 12),# text of axis
+    axis.text.x = element_text(angle = 45, hjust = 1,size = 10),
+    legend.title = element_text(size = 16),
+    legend.text = element_text(size = 14),
+    legend.position = "right",
+    plot.margin = margin(1, 1, 2, 2, "cm"),
+    panel.border = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid"),#修改此行
+    legend.background = element_blank(),
+    #legend.spacing.y = unit(5, "cm") 
+  )  +
+
+  facet_wrap(~year, scales = "free_y")
+
+print(p)
+ggsave("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/output_figures/time_species.png", plot = p, width = 12, height = 8, dpi = 600)
+
+
+
+
+```
+
+
+
+
+
+```{r}
+library(ggplot2)
+
+#ts_data <- ts(sensor_12$calls_number_clean, frequency = 365)
+ts_data <- ts(sensor_12$calls_number_clean, start=c(2019, 151), end=c(2023, 143), frequency = 365)
+
+# decompose time series
+# additive model
+decomposed_data <- decompose(ts_data, type = "additive")
+
+output_file <- "C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/output_figures/time_series.png"
+
+png(filename = output_file, width = 10, height = 8, units = "in", res = 600)
+
+plot(decomposed_data)
+
+dev.off()
+```
+new:
+```{r}
+library(ggplot2)
+
+#ts_data <- ts(sensor_12$calls_number_clean, frequency = 365)
+ts_data <- ts(sensor_12$calls_number_clean, start=c(2019, 151), end=c(2023, 143), frequency = 365)
+
+# decompose time series
+# additive model
+decomposed_data <- decompose(ts_data, type = "multiplicative")
+
+output_file <- "C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/output_figures/time_series_new.png"
+
+png(filename = output_file, width = 10, height = 8, units = "in", res = 600)
+
+plot(decomposed_data)
+
+dev.off()
+```
+
+```{r}
+sensor_12$month <- month(sensor_12$date)
+```
+

@@ -1,0 +1,680 @@
+---
+title: "Untitled"
+author: "WENDI"
+date: "2023-07-17"
+output: html_document
+---
+```{r}
+library(tidyverse)
+library(tidyr)
+library(dplyr)
+library(scales) # for date formatting
+library(ggplot2)
+library(data.table)
+library(lubridate)
+library(suncalc)
+Sys.setlocale("LC_TIME", "English")
+if (!require(corrplot)) {
+    install.packages("corrplot")
+}
+if (!require(openxlsx)) {
+  install.packages("openxlsx")
+}
+
+library(openxlsx)
+library(corrplot)
+library(lme4)
+```
+
+```{r}
+
+hour_sunset_table <- table(GLMM_analysis$hour_sunset)
+
+png("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/barplot.png", width = 800, height = 600)
+
+# 创建条形图，不包含x轴标签
+bp <- barplot(hour_sunset_table, main = "Data Distribution", xlab = "Time interval from sunset (in half-hour increments)", ylab = "Frequency", xaxt = "n")
+
+# 添加自定义x轴标签
+axis(side = 1, at = bp, labels = names(hour_sunset_table), las = 2, cex.axis = 0.7)
+
+
+
+dev.off()
+```
+
+#dataset
+```{r}
+sensor_weather_final <- read.csv("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/sensor_weather_final.csv")
+
+#GLMM_analysis <- select(sensor_weather_final, -c("date"))
+GLMM_analysis <- sensor_weather_final
+#write.csv(GLMM_analysis, "C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/GLMM_analysis.csv", row.names = FALSE) 
+GLMM_analysis <- GLMM_analysis %>% rename("All_Calls_Volume" = "all_types","V_Pipistrellus_nathusii"="Pipistrellus_nathusii","V_Pipistrellus_pipistrellus"="Pipistrellus_pipistrellus","V_Pipistrellus_pygmaeus"="Pipistrellus_pygmaeus","hour_sunset"="interval_half")
+GLMM_analysis <- GLMM_analysis %>%
+  relocate(sensor_number, .after = names(GLMM_analysis)[5])
+```
+#standardization independent variables
+(not: dependent variables and random variable)
+```{r}
+cols_to_skip <- c("All_Calls_Volume","V_Pipistrellus_nathusii", "V_Pipistrellus_pipistrellus", "V_Pipistrellus_pygmaeus", "sensor_number","hour_sunset","date")
+
+for (col_name in names(GLMM_analysis)) {
+  if (!(col_name %in% cols_to_skip)) {
+    GLMM_analysis[[col_name]] <- scale(GLMM_analysis[[col_name]])
+  }
+}
+
+```
+#multicollinearity 
+```{r}
+predictor_variables <- GLMM_analysis[,-which(names(GLMM_analysis) %in% c("hour_sunset","sensor_number","date"))]
+correlation_matrix <- cor(predictor_variables, use = "pairwise.complete.obs")
+
+# 设置图形参数
+par(mar = c(5,5,10,2) + 0.1)  # 调整图形边距，你可以根据需要调整这些数值
+
+# 创建相关矩阵图
+corrplot(correlation_matrix, method = "circle", 
+         tl.col = "black",  # 标签颜色
+         tl.cex = 1.4,
+          cl.cex = 1.4, )  # 标签大小
+         #title = "Correlation Matrix of Independent Variables")  
+
+png(filename = "C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/output_figures/Correlation_Matrix.png", 
+    width = 1200, height = 1200)  # 可以根据需要调整图形尺寸
+
+corrplot(correlation_matrix, method = "circle", 
+         tl.col = "black",  # 标签颜色
+         tl.cex = 1.4,
+          cl.cex = 1.4, )  # 标签大小
+         #title = "Correlation Matrix of Predictor Variables")  # 添加标题
+
+dev.off()
+
+```
+#final martrix and variables
+
+```{r}
+GLMM_analysis <- GLMM_analysis[,-which(names(GLMM_analysis) %in% c("humidityAvg","humidityLow","tempAvg","tempHigh","windspeedHigh","windspeedLow","windgustAvg","windgustHigh","dewptLow","dewptHigh","windchillAvg","windchillHigh","heatindexAvg","heatindexHigh","pressureMax"))]
+
+GLMM_analysis <- GLMM_analysis %>% rename("Humidity"="humidityHigh","Temperature"="tempLow","Windspeed"="windspeedAvg","Windgust"="windgustLow","Dew_point"="dewptAvg","Wind_chill"="windchillLow","Heat_index"="heatindexLow","Pressure"="pressureMin","Pressure_Trend"="pressureTrend","Precipitation_rate"="precipRate","Precipitation_total"="precipTotal")
+
+predictor_variables <- GLMM_analysis[,-which(names(GLMM_analysis) %in% c("hour_sunset","sensor_number","date"))]
+correlation_matrix <- cor(predictor_variables, use = "pairwise.complete.obs")
+
+
+# 设置图形参数
+par(mar = c(5,5,8,2) + 0.1)  # 调整图形边距，你可以根据需要调整这些数值
+
+# 创建相关矩阵图
+corrplot(correlation_matrix, method = "circle", 
+         tl.col = "black",  # 标签颜色
+         tl.cex = 1.8,
+          cl.cex = 1.8, )  # 标签大小
+         #title = "Correlation Matrix of Independent Variables")  
+
+png(filename = "C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/output_figures/Final_Correlation_Matrix.png", 
+    width = 1200, height = 1200)  # 可以根据需要调整图形尺寸
+
+corrplot(correlation_matrix, method = "circle", 
+         tl.col = "black",  # 标签颜色
+         tl.cex = 1.4,
+          cl.cex = 1.4, )  # 标签大小
+         #title = "Correlation Matrix of Predictor Variables")  # 添加标题
+
+dev.off()
+```
+
+#begin!
+
+```{r}
+
+GLMM_analysis$date <- as.Date(GLMM_analysis$date)
+
+GLMM_analysis$month <- format(GLMM_analysis$date, "%m")
+
+GLMM_analysis$season <- ifelse(GLMM_analysis$month %in% c("03", "04", "05"), "Spring",
+                               ifelse(GLMM_analysis$month %in% c("06", "07", "08"), "Summer",
+                                      ifelse(GLMM_analysis$month %in% c("09", "10", "11"), "Autumn", "Winter")))
+
+
+GLMM_analysis_final <- select(GLMM_analysis, -c("date","month"))
+GLMM_analysis_final$hour_sunset <- as.factor(GLMM_analysis_final$hour_sunset)
+
+
+
+#write.csv(GLMM_analysis_final, "C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/GLMM_analysis_final.csv", row.names = FALSE) 
+```
+
+```{r}
+# ??????????????????
+levels <- c("[-2,-1.5]","[-1.5,-1]","[-1,-0.5]","[-0.5,0]", "[0,0.5]","[0.5,1]","[1,1.5]","[1.5,2]","[2,2.5]","[2.5,3]","[3,3.5]","[3.5,4]","[4,4.5]","[4.5,5]","[5,5.5]","[5.5,6]","[6,6.5]","[6.5,7]","[7,7.5]","[7.5,8]") # ????????????3???,????????????????????????20???
+
+# ??????????????????????????????,????????????
+GLMM_analysis_final$hour_sunset <- factor(GLMM_analysis_final$hour_sunset, levels = levels)
+
+# ????????????????????????
+GLMM_analysis_final$hour_sunset <- as.numeric(GLMM_analysis_final$hour_sunset)
+#stand
+GLMM_analysis_final[["hour_sunset"]] <- scale(GLMM_analysis_final[["hour_sunset"]])
+```
+
+# ALL!
+```{r}
+model_AIC <- data.frame(
+  Model = character(),
+  AIC = double(),
+  stringsAsFactors = FALSE
+)
+
+model_formulas <- list(
+"All_Calls_Volume ~ hour_sunset + season + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Humidity + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Humidity + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed + Windgust + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed + Windgust + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Dew_point + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Dew_point + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Pressure + Pressure_Trend + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Pressure + Pressure_Trend + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Precipitation_rate + Precipitation_total + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Precipitation_rate + Precipitation_total + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Wind_chill + Heat_index + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Wind_chill + Heat_index + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Humidity + Windspeed + Windgust + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Humidity + Windspeed + Windgust + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Humidity + Dew_point + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Humidity + Dew_point + (1|sensor_number),
+#-----------
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Humidity + Pressure + Pressure_Trend + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Humidity + Pressure + Pressure_Trend + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Humidity + Precipitation_rate + Precipitation_total + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Humidity + Precipitation_rate + Precipitation_total + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Humidity + Wind_chill + Heat_index + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Humidity + Wind_chill + Heat_index + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed + Windgust + Dew_point + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed + Windgust + Dew_point + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed + Windgust + Pressure + Pressure_Trend + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed + Windgust + Pressure + Pressure_Trend + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed + Windgust + Wind_chill + Heat_index + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed + Windgust + Wind_chill + Heat_index + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Dew_point + Pressure + Pressure_Trend + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Dew_point + Pressure + Pressure_Trend + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Dew_point + Wind_chill + Heat_index + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Dew_point + Wind_chill + Heat_index + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Pressure + Pressure_Trend + Wind_chill + Heat_index + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Pressure + Pressure_Trend + Wind_chill + Heat_index + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed + Windgust + Dew_point + Pressure + Pressure_Trend + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed + Windgust + Dew_point + Pressure + Pressure_Trend + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed + Windgust + Dew_point + Wind_chill + Heat_index + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed + Windgust + Dew_point + Wind_chill + Heat_index + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed + Windgust + Pressure + Pressure_Trend + Wind_chill + Heat_index + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed + Windgust + Pressure + Pressure_Trend + Wind_chill + Heat_index + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Dew_point + Pressure + Pressure_Trend + Wind_chill + Heat_index + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Dew_point + Pressure + Pressure_Trend + Wind_chill + Heat_index + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Humidity + Temperature + Windspeed + Windgust + Dew_point + Pressure + Pressure_Trend + Precipitation_rate + Precipitation_total + Wind_chill + Heat_index + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Humidity + Temperature + Windspeed + Windgust + Dew_point + Pressure + Pressure_Trend + Precipitation_rate + Precipitation_total + Wind_chill + Heat_index + (1|sensor_number),
+
+#-------------consider
+"All_Calls_Volume ~ hour_sunset + season + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Humidity + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Humidity + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed*Windgust + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed*Windgust + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Dew_point + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Dew_point + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Pressure*Pressure_Trend + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Pressure*Pressure_Trend + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Precipitation_rate*Precipitation_total + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Precipitation_rate*Precipitation_total + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Wind_chill*Heat_index + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Wind_chill*Heat_index + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Humidity + Windspeed*Windgust + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Humidity + Windspeed*Windgust + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Humidity + Dew_point + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Humidity + Dew_point + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Humidity + Pressure*Pressure_Trend + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Humidity + Pressure*Pressure_Trend + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Humidity + Precipitation_rate*Precipitation_total + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Humidity + Precipitation_rate*Precipitation_total + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Humidity + Wind_chill*Heat_index + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Humidity + Wind_chill*Heat_index + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed*Windgust + Dew_point + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed*Windgust + Dew_point + (1|sensor_number),
+#----------------------------------------
+ "All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed*Windgust + Pressure*Pressure_Trend + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed*Windgust + Pressure*Pressure_Trend + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed*Windgust + Wind_chill*Heat_index + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed*Windgust + Wind_chill*Heat_index + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Dew_point + Pressure*Pressure_Trend + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Dew_point + Pressure*Pressure_Trend + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Dew_point + Wind_chill*Heat_index + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Dew_point + Wind_chill*Heat_index + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Pressure*Pressure_Trend + Wind_chill*Heat_index + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Pressure*Pressure_Trend + Wind_chill*Heat_index + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed*Windgust + Dew_point + Wind_chill*Heat_index + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed*Windgust + Dew_point + Wind_chill*Heat_index + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed*Windgust + Pressure*Pressure_Trend + Wind_chill*Heat_index + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Windspeed*Windgust + Pressure*Pressure_Trend + Wind_chill*Heat_index + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Temperature + Dew_point + Pressure*Pressure_Trend + Wind_chill*Heat_index + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Temperature + Dew_point + Pressure*Pressure_Trend + Wind_chill*Heat_index + (1|sensor_number),
+"All_Calls_Volume ~ hour_sunset + season + Humidity + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + Precipitation_rate*Precipitation_total + Wind_chill*Heat_index + (1|sensor_number)" = All_Calls_Volume ~ hour_sunset + season + Humidity + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + Precipitation_rate*Precipitation_total + Wind_chill*Heat_index + (1|sensor_number)
+)
+
+for (i in names(model_formulas)) {
+  result <- tryCatch({
+    model <- glmer(model_formulas[[i]], data = GLMM_analysis_final, family = negative.binomial(1))
+    AIC_val <- AIC(model)
+    list(success = TRUE, model = i, AIC_val = AIC_val, model_object = model)
+  }, error = function(e) {
+    list(success = FALSE, message = e$message)
+  })
+
+  if (result$success) {
+    model_AIC <- rbind(model_AIC, data.frame(Model = result$model, AIC = result$AIC_val))
+  } else {
+    print(paste("Model", i, "failed with error:", result$message))
+  }
+}
+
+model_AIC <- model_AIC[order(model_AIC$AIC), ]
+
+write.csv(model_AIC , "C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/AIC_all_0803.csv", row.names = FALSE) 
+
+best_model_all <- glmer(All_Calls_Volume ~ hour_sunset +season + Humidity + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + Precipitation_rate*Precipitation_total + Wind_chill*Heat_index + (1|sensor_number), data = GLMM_analysis_final, family = negative.binomial(1))
+summary(best_model_all)
+
+model_summary <- summary(best_model_all)
+
+summary(best_model_all)
+```
+
+```{r}
+# ????????????????????????????????????????????????
+set.seed(123)
+
+# ??????????????????
+n <- nrow(GLMM_analysis_final)
+
+# ??????70%????????????????????????(??????????????????????????????????????????)
+train_index <- sample(1:n, size = 0.7 * n)
+
+train_data <- GLMM_analysis_final[train_index, ]
+test_data  <- GLMM_analysis_final[-train_index, ]
+
+library(glmmTMB)
+
+model <- glmmTMB(All_Calls_Volume ~ hour_sunset +season+Humidity + Temperature + Windspeed + Windgust + Dew_point + Pressure + Pressure_Trend + Precipitation_rate + Precipitation_total + Wind_chill + Heat_index + (1|sensor_number), data=train_data, family=poisson())
+
+predictions <- predict(model, newdata=test_data, type="response")
+
+plot(predictions, test_data$All_Calls_Volume)
+abline(a=0, b=1, col="red")  # ??????y=x???,????????????????????????,?????????????????????????????????
+mse <- mean((test_data$All_Calls_Volume - predictions)^2)
+print(mse)
+rmse <- sqrt(mse)
+print(rmse)
+
+# ????????????
+time_points <- 1:length(predictions)  # ???????????????????????????????????????
+plot(time_points, test_data$All_Calls_Volume, type="l", col="blue", ylim=range(c(predictions, test_data$All_Calls_Volume)), ylab="Value", xlab="Time")
+lines(time_points, predictions, col="red")
+legend("topright", legend=c("Actual", "Predicted"), col=c("blue", "red"), lty=1)
+
+```
+
+#CART
+```{r}
+install.packages("rpart")
+library(rpart)
+model_cart <- rpart(All_Calls_Volume ~ hour_sunset + season + Humidity + Temperature + Windspeed + Windgust + Dew_point + Pressure + Pressure_Trend + Precipitation_rate + Precipitation_total + Wind_chill + Heat_index, data=train_data, method="poisson")
+predictions_cart <- predict(model_cart, newdata=test_data)
+actuals <- test_data$All_Calls_Volume
+SSres <- sum((actuals - predictions_cart)^2)
+SStot <- sum((actuals - mean(actuals))^2)
+R2 <- 1 - (SSres/SStot)
+R2
+```
+
+
+```{r}
+library('gpboost')
+group_data <- GLMM_analysis_final$sensor_number
+#X <- GLMM_analysis_final[, c("hour_sunset", "season", "Humidity","Temperature","Windspeed","Windgust","Dew_point","Pressure","Pressure_Trend","Precipitation_rate","Precipitation_total","Wind_chill","Heat_index")]  # ... ??????????????????
+X <- as.matrix(GLMM_analysis_final[, c("hour_sunset", "season","Humidity", "Temperature", "Windspeed", "Windgust", "Dew_point", "Pressure", "Pressure_Trend", "Precipitation_rate", "Precipitation_total", "Wind_chill", "Heat_index")])
+y <- GLMM_analysis_final$All_Calls_Volume
+
+gp_model <- fitGPModel(group_data=group_data, likelihood="binary",                               
+                        y=y, X=X)
+summary(gp_model)
+```
+
+
+
+
+
+#Pipistrellus_nathusii
+
+```{r}
+model_AIC <- data.frame(
+  Model = character(),
+  AIC = double(),
+  stringsAsFactors = FALSE
+)
+
+model_formulas <- list(
+"V_Pipistrellus_nathusii ~ hour_sunset + season + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Humidity + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Humidity + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed + Windgust + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed + Windgust + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Dew_point + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Dew_point + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Pressure + Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Pressure + Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Precipitation_rate + Precipitation_total + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Precipitation_rate + Precipitation_total + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Wind_chill + Heat_index + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Humidity + Windspeed + Windgust + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Humidity + Windspeed + Windgust + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Humidity + Dew_point + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Humidity + Dew_point + (1|sensor_number),
+#-----------
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Humidity + Pressure + Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Humidity + Pressure + Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Humidity + Precipitation_rate + Precipitation_total + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Humidity + Precipitation_rate + Precipitation_total + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Humidity + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Humidity + Wind_chill + Heat_index + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed + Windgust + Dew_point + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed + Windgust + Dew_point + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed + Windgust + Pressure + Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed + Windgust + Pressure + Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed + Windgust + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed + Windgust + Wind_chill + Heat_index + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Dew_point + Pressure + Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Dew_point + Pressure + Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Dew_point + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Dew_point + Wind_chill + Heat_index + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Pressure + Pressure_Trend + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Pressure + Pressure_Trend + Wind_chill + Heat_index + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed + Windgust + Dew_point + Pressure + Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed + Windgust + Dew_point + Pressure + Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed + Windgust + Dew_point + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed + Windgust + Dew_point + Wind_chill + Heat_index + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed + Windgust + Pressure + Pressure_Trend + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed + Windgust + Pressure + Pressure_Trend + Wind_chill + Heat_index + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Dew_point + Pressure + Pressure_Trend + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Dew_point + Pressure + Pressure_Trend + Wind_chill + Heat_index + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Humidity + Temperature + Windspeed + Windgust + Dew_point + Pressure + Pressure_Trend + Precipitation_rate + Precipitation_total + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Humidity + Temperature + Windspeed + Windgust + Dew_point + Pressure + Pressure_Trend + Precipitation_rate + Precipitation_total + Wind_chill + Heat_index + (1|sensor_number),
+#-------------consider
+"V_Pipistrellus_nathusii ~ hour_sunset + season + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Humidity + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Humidity + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed*Windgust + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed*Windgust + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Dew_point + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Dew_point + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Pressure*Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Pressure*Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Precipitation_rate*Precipitation_total + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Precipitation_rate*Precipitation_total + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Wind_chill*Heat_index + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Humidity + Windspeed*Windgust + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Humidity + Windspeed*Windgust + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Humidity + Dew_point + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Humidity + Dew_point + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Humidity + Pressure*Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Humidity + Pressure*Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Humidity + Precipitation_rate*Precipitation_total + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Humidity + Precipitation_rate*Precipitation_total + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Humidity + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Humidity + Wind_chill*Heat_index + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed*Windgust + Dew_point + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed*Windgust + Dew_point + (1|sensor_number),
+#----------------------------------------
+ "V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed*Windgust + Pressure*Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed*Windgust + Pressure*Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed*Windgust + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed*Windgust + Wind_chill*Heat_index + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Dew_point + Pressure*Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Dew_point + Pressure*Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Dew_point + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Dew_point + Wind_chill*Heat_index + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Pressure*Pressure_Trend + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Pressure*Pressure_Trend + Wind_chill*Heat_index + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed*Windgust + Dew_point + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed*Windgust + Dew_point + Wind_chill*Heat_index + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed*Windgust + Pressure*Pressure_Trend + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Windspeed*Windgust + Pressure*Pressure_Trend + Wind_chill*Heat_index + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Dew_point + Pressure*Pressure_Trend + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Temperature + Dew_point + Pressure*Pressure_Trend + Wind_chill*Heat_index + (1|sensor_number),
+"V_Pipistrellus_nathusii ~ hour_sunset + season + Humidity + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + Precipitation_rate*Precipitation_total + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_nathusii ~ hour_sunset + season + Humidity + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + Precipitation_rate*Precipitation_total + Wind_chill*Heat_index + (1|sensor_number)
+)
+
+for (i in names(model_formulas)) {
+  result <- tryCatch({
+    model <- glmer(model_formulas[[i]], data = GLMM_analysis_final, family = negative.binomial(1))
+    AIC_val <- AIC(model)
+    list(success = TRUE, model = i, AIC_val = AIC_val, model_object = model)
+  }, error = function(e) {
+    list(success = FALSE, message = e$message)
+  })
+
+  if (result$success) {
+    model_AIC <- rbind(model_AIC, data.frame(Model = result$model, AIC = result$AIC_val))
+  } else {
+    print(paste("Model", i, "failed with error:", result$message))
+  }
+}
+
+model_AIC <- model_AIC[order(model_AIC$AIC), ]
+
+write.csv(model_AIC , "C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/AIC_nathusii_0803.csv", row.names = FALSE) 
+
+best_model_all <- glmer(V_Pipistrellus_nathusii ~ hour_sunset + season + Humidity + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + Precipitation_rate*Precipitation_total + Wind_chill*Heat_index + (1|sensor_number), data = GLMM_analysis_final, family = negative.binomial(1))
+summary(best_model_all)
+
+model_summary <- summary(best_model_all)
+
+summary(best_model_all)
+```
+
+#AIC-V_Pipistrellus_pipistrellus
+
+```{r}
+model_AIC <- data.frame(
+  Model = character(),
+  AIC = double(),
+  stringsAsFactors = FALSE
+)
+
+model_formulas <- list(
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Humidity + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Humidity + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed + Windgust + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed + Windgust + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Dew_point + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Dew_point + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Pressure + Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Pressure + Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Precipitation_rate + Precipitation_total + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Precipitation_rate + Precipitation_total + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Wind_chill + Heat_index + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Humidity + Windspeed + Windgust + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Humidity + Windspeed + Windgust + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Humidity + Dew_point + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Humidity + Dew_point + (1|sensor_number),
+#-----------
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Humidity + Pressure + Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Humidity + Pressure + Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Humidity + Precipitation_rate + Precipitation_total + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Humidity + Precipitation_rate + Precipitation_total + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Humidity + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Humidity + Wind_chill + Heat_index + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed + Windgust + Dew_point + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed + Windgust + Dew_point + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed + Windgust + Pressure + Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed + Windgust + Pressure + Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed + Windgust + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed + Windgust + Wind_chill + Heat_index + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Dew_point + Pressure + Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Dew_point + Pressure + Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Dew_point + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Dew_point + Wind_chill + Heat_index + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Pressure + Pressure_Trend + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Pressure + Pressure_Trend + Wind_chill + Heat_index + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed + Windgust + Dew_point + Pressure + Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed + Windgust + Dew_point + Pressure + Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed + Windgust + Dew_point + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed + Windgust + Dew_point + Wind_chill + Heat_index + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed + Windgust + Pressure + Pressure_Trend + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed + Windgust + Pressure + Pressure_Trend + Wind_chill + Heat_index + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Dew_point + Pressure + Pressure_Trend + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Dew_point + Pressure + Pressure_Trend + Wind_chill + Heat_index + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Humidity + Temperature + Windspeed + Windgust + Dew_point + Pressure + Pressure_Trend + Precipitation_rate + Precipitation_total + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Humidity + Temperature + Windspeed + Windgust + Dew_point + Pressure + Pressure_Trend + Precipitation_rate + Precipitation_total + Wind_chill + Heat_index + (1|sensor_number),
+#-------------consider
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Humidity + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Humidity + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed*Windgust + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed*Windgust + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Dew_point + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Dew_point + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Pressure*Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Pressure*Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Precipitation_rate*Precipitation_total + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Precipitation_rate*Precipitation_total + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Wind_chill*Heat_index + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Humidity + Windspeed*Windgust + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Humidity + Windspeed*Windgust + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Humidity + Dew_point + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Humidity + Dew_point + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Humidity + Pressure*Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Humidity + Pressure*Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Humidity + Precipitation_rate*Precipitation_total + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Humidity + Precipitation_rate*Precipitation_total + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Humidity + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Humidity + Wind_chill*Heat_index + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed*Windgust + Dew_point + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed*Windgust + Dew_point + (1|sensor_number),
+#----------------------------------------
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed*Windgust + Pressure*Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed*Windgust + Pressure*Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed*Windgust + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed*Windgust + Wind_chill*Heat_index + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Dew_point + Pressure*Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Dew_point + Pressure*Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Dew_point + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Dew_point + Wind_chill*Heat_index + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Pressure*Pressure_Trend + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Pressure*Pressure_Trend + Wind_chill*Heat_index + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed*Windgust + Dew_point + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed*Windgust + Dew_point + Wind_chill*Heat_index + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed*Windgust + Pressure*Pressure_Trend + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Windspeed*Windgust + Pressure*Pressure_Trend + Wind_chill*Heat_index + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Dew_point + Pressure*Pressure_Trend + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Temperature + Dew_point + Pressure*Pressure_Trend + Wind_chill*Heat_index + (1|sensor_number),
+"V_Pipistrellus_pipistrellus ~ hour_sunset + season + Humidity + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + Precipitation_rate*Precipitation_total + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_pipistrellus ~ hour_sunset + season + Humidity + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + Precipitation_rate*Precipitation_total + Wind_chill*Heat_index + (1|sensor_number)
+)
+
+for (i in names(model_formulas)) {
+  result <- tryCatch({
+    model <- glmer(model_formulas[[i]], data = GLMM_analysis_final, family = negative.binomial(1))
+    AIC_val <- AIC(model)
+    list(success = TRUE, model = i, AIC_val = AIC_val, model_object = model)
+  }, error = function(e) {
+    list(success = FALSE, message = e$message)
+  })
+
+  if (result$success) {
+    model_AIC <- rbind(model_AIC, data.frame(Model = result$model, AIC = result$AIC_val))
+  } else {
+    print(paste("Model", i, "failed with error:", result$message))
+  }
+}
+
+model_AIC <- model_AIC[order(model_AIC$AIC), ]
+
+write.csv(model_AIC , "C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/AIC_pipistrellus_0803.csv", row.names = FALSE) 
+
+best_model_all <- glmer(V_Pipistrellus_pipistrellus ~ hour_sunset + season + Humidity + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + Precipitation_rate*Precipitation_total + Wind_chill*Heat_index + (1|sensor_number), data = GLMM_analysis_final, family = negative.binomial(1))
+summary(best_model_all)
+
+model_summary <- summary(best_model_all)
+
+summary(best_model_all)
+```
+
+#V_Pipistrellus_pygmaeus
+
+```{r}
+model_AIC <- data.frame(
+  Model = character(),
+  AIC = double(),
+  stringsAsFactors = FALSE
+)
+
+model_formulas <- list(
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Humidity + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Humidity + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed + Windgust + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed + Windgust + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Dew_point + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Dew_point + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Pressure + Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Pressure + Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Precipitation_rate + Precipitation_total + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Precipitation_rate + Precipitation_total + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Wind_chill + Heat_index + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Humidity + Windspeed + Windgust + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Humidity + Windspeed + Windgust + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Humidity + Dew_point + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Humidity + Dew_point + (1|sensor_number),
+#-----------
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Humidity + Pressure + Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Humidity + Pressure + Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Humidity + Precipitation_rate + Precipitation_total + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Humidity + Precipitation_rate + Precipitation_total + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Humidity + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Humidity + Wind_chill + Heat_index + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed + Windgust + Dew_point + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed + Windgust + Dew_point + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed + Windgust + Pressure + Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed + Windgust + Pressure + Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed + Windgust + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed + Windgust + Wind_chill + Heat_index + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Dew_point + Pressure + Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Dew_point + Pressure + Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Dew_point + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Dew_point + Wind_chill + Heat_index + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Pressure + Pressure_Trend + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Pressure + Pressure_Trend + Wind_chill + Heat_index + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed + Windgust + Dew_point + Pressure + Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed + Windgust + Dew_point + Pressure + Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed + Windgust + Dew_point + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed + Windgust + Dew_point + Wind_chill + Heat_index + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed + Windgust + Pressure + Pressure_Trend + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed + Windgust + Pressure + Pressure_Trend + Wind_chill + Heat_index + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Dew_point + Pressure + Pressure_Trend + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Dew_point + Pressure + Pressure_Trend + Wind_chill + Heat_index + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Humidity + Temperature + Windspeed + Windgust + Dew_point + Pressure + Pressure_Trend + Precipitation_rate + Precipitation_total + Wind_chill + Heat_index + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Humidity + Temperature + Windspeed + Windgust + Dew_point + Pressure + Pressure_Trend + Precipitation_rate + Precipitation_total + Wind_chill + Heat_index + (1|sensor_number),
+
+#-------------consider
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Humidity + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Humidity + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed*Windgust + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed*Windgust + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Dew_point + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Dew_point + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Pressure*Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Pressure*Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Precipitation_rate*Precipitation_total + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Precipitation_rate*Precipitation_total + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Wind_chill*Heat_index + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Humidity + Windspeed*Windgust + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Humidity + Windspeed*Windgust + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Humidity + Dew_point + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Humidity + Dew_point + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Humidity + Pressure*Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Humidity + Pressure*Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Humidity + Precipitation_rate*Precipitation_total + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Humidity + Precipitation_rate*Precipitation_total + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Humidity + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Humidity + Wind_chill*Heat_index + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed*Windgust + Dew_point + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed*Windgust + Dew_point + (1|sensor_number),
+#----------------------------------------
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed*Windgust + Pressure*Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed*Windgust + Pressure*Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed*Windgust + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed*Windgust + Wind_chill*Heat_index + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Dew_point + Pressure*Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Dew_point + Pressure*Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Dew_point + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Dew_point + Wind_chill*Heat_index + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Pressure*Pressure_Trend + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Pressure*Pressure_Trend + Wind_chill*Heat_index + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed*Windgust + Dew_point + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed*Windgust + Dew_point + Wind_chill*Heat_index + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed*Windgust + Pressure*Pressure_Trend + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Windspeed*Windgust + Pressure*Pressure_Trend + Wind_chill*Heat_index + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Dew_point + Pressure*Pressure_Trend + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Temperature + Dew_point + Pressure*Pressure_Trend + Wind_chill*Heat_index + (1|sensor_number),
+"V_Pipistrellus_pygmaeus ~ hour_sunset + season + Humidity + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + Precipitation_rate*Precipitation_total + Wind_chill*Heat_index + (1|sensor_number)" = V_Pipistrellus_pygmaeus ~ hour_sunset + season + Humidity + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + Precipitation_rate*Precipitation_total + Wind_chill*Heat_index + (1|sensor_number)
+
+)
+
+for (i in names(model_formulas)) {
+  result <- tryCatch({
+    model <- glmer(model_formulas[[i]], data = GLMM_analysis_final, family = negative.binomial(1))
+    AIC_val <- AIC(model)
+    list(success = TRUE, model = i, AIC_val = AIC_val, model_object = model)
+  }, error = function(e) {
+    list(success = FALSE, message = e$message)
+  })
+
+  if (result$success) {
+    model_AIC <- rbind(model_AIC, data.frame(Model = result$model, AIC = result$AIC_val))
+  } else {
+    print(paste("Model", i, "failed with error:", result$message))
+  }
+}
+
+model_AIC <- model_AIC[order(model_AIC$AIC), ]
+
+write.csv(model_AIC , "C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/AIC_pygmaeus_0803.csv", row.names = FALSE) 
+
+best_model_all <- glmer(V_Pipistrellus_pygmaeus ~ hour_sunset + season + Humidity + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + Precipitation_rate*Precipitation_total + Wind_chill*Heat_index + (1|sensor_number), data = GLMM_analysis_final, family = negative.binomial(1))
+summary(best_model_all)
+
+model_summary <- summary(best_model_all)
+
+summary(best_model_all)
+```
+
+# event
+```{r}
+event <- read.csv("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/raw_data/Event_raw.csv")
+event_GLMM_analysis <- select(GLMM_analysis, -c("month"))
+levels <- c("[-2,-1.5]","[-1.5,-1]","[-1,-0.5]","[-0.5,0]", "[0,0.5]","[0.5,1]","[1,1.5]","[1.5,2]","[2,2.5]","[2.5,3]","[3,3.5]","[3.5,4]","[4,4.5]","[4.5,5]","[5,5.5]","[5.5,6]","[6,6.5]","[6.5,7]","[7,7.5]","[7.5,8]") # ????????????3???,????????????????????????20???
+
+# ??????????????????????????????,????????????
+event_GLMM_analysis$hour_sunset <- factor(event_GLMM_analysis$hour_sunset, levels = levels)
+
+# ????????????????????????
+event_GLMM_analysis$hour_sunset <- as.numeric(event_GLMM_analysis$hour_sunset)
+#stand
+event_GLMM_analysis[["hour_sunset"]] <- scale(event_GLMM_analysis[["hour_sunset"]])
+```
+
+
+```{r}
+event$Attendance <- as.numeric(gsub(",", "", event$Attendance))
+event$Start.Date <- as.Date(event$Start.Date, format = "%d/%m/%Y")
+names(event)[names(event) == 'Start.Date'] <- 'date'
+event_group <- event %>%
+  group_by(date) %>%
+  summarize(attence = sum(Attendance, na.rm = TRUE))
+
+event_glmm <- left_join(event_GLMM_analysis, event_group, by = "date")
+
+# ?????? replace_na ?????? attence ????????? NA ??? 0
+event_glmm$attence <- replace_na(event_glmm$attence, 0)
+
+event_glmm[["attence"]] <- scale(event_glmm[["attence"]])
+```
+
+```{r}
+event_all <- glmer(All_Calls_Volume ~ hour_sunset + attence + season + Humidity + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + Precipitation_rate*Precipitation_total + Wind_chill*Heat_index + (1|sensor_number), data = event_glmm, family = negative.binomial(1))
+
+model_aic <- AIC(event_all)
+print(model_aic)
+###+
+event_nathusii <- glmer(V_Pipistrellus_nathusii ~ hour_sunset + attence + season + Humidity + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + Precipitation_rate*Precipitation_total + Wind_chill*Heat_index + (1|sensor_number), data = event_glmm, family = negative.binomial(1))
+
+model_aic <- AIC(event_nathusii)
+print(model_aic)
+###+
+event_pipistrellus <- glmer(V_Pipistrellus_pipistrellus ~ hour_sunset + attence + season + Humidity + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + Precipitation_rate*Precipitation_total + Wind_chill*Heat_index + (1|sensor_number), data = event_glmm, family = negative.binomial(1))
+
+model_aic <- AIC(event_pipistrellus)
+print(model_aic)
+###
+event_pygmaeus <- glmer(V_Pipistrellus_pygmaeus ~ hour_sunset + attence + season + Humidity + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + Precipitation_rate*Precipitation_total + Wind_chill*Heat_index + (1|sensor_number), data = event_glmm, family = negative.binomial(1))
+
+model_aic <- AIC(event_pygmaeus)
+print(model_aic)
+summary(event_pygmaeus)##better
+###---
+
+
+```
+
+
+#weekend
+```{r}
+event_glmm$day_of_week <- weekdays(event_glmm$date)
+event_glmm$weekend <- ifelse(event_glmm$day_of_week %in% c("Saturday", "Sunday"), "weekend", "weekday")
+
+
+event_all <- glmer(All_Calls_Volume ~ hour_sunset + weekend + attence+ season + Humidity + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + Precipitation_rate*Precipitation_total + Wind_chill*Heat_index + (1|sensor_number), data = event_glmm, family = negative.binomial(1),control = glmerControl(optimizer="bobyqa", optCtrl=list(maxfun=1e5)))
+
+model_aic <- AIC(event_all)
+print(model_aic)
+summary(event_all)
+##
+event_nathusii <- glmer(V_Pipistrellus_nathusii ~ hour_sunset + weekend + attence+ season + Humidity + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + Precipitation_rate*Precipitation_total + Wind_chill*Heat_index + (1|sensor_number), data = event_glmm, family = negative.binomial(1))
+
+model_aic <- AIC(event_nathusii)
+print(model_aic)#better
+##
+event_pipistrellus <- glmer(V_Pipistrellus_pipistrellus ~ hour_sunset + weekend +attence+ season + Humidity + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + Precipitation_rate*Precipitation_total + Wind_chill*Heat_index + (1|sensor_number), data = event_glmm, family = negative.binomial(1))
+
+model_aic <- AIC(event_pipistrellus)
+print(model_aic)#better
+##
+event_pygmaeus <- glmer(V_Pipistrellus_pygmaeus ~ hour_sunset + weekend +attence+ season + Humidity + Temperature + Windspeed*Windgust + Dew_point + Pressure*Pressure_Trend + Precipitation_rate*Precipitation_total + Wind_chill*Heat_index + (1|sensor_number), data = event_glmm, family = negative.binomial(1))
+
+model_aic <- AIC(event_pygmaeus)
+print(model_aic)
+summary(event_pygmaeus)
+```
+

@@ -1,0 +1,322 @@
+
+```{r}
+library(tidyverse)
+library(tidyr)
+library(dplyr)
+library(scales) # for date formatting
+library(ggplot2)
+library(data.table)
+library(lubridate)
+Sys.setlocale("LC_TIME", "English")
+```
+
+Loading complete data (including missing date and original calls data, per day, not including time)
+```{r}
+complete_date <- read.csv("C:/Users/WD/Desktop/dissertation/Wendi/dissertation/anlaysis_file/complete_date.csv")
+complete_date$date <- as.Date(complete_date$date)
+```
+
+#2019-2020 plot
+```{r}
+#filter available data
+monthly <- complete_date %>%
+  filter(sensor_number %in% c(2, 3, 4, 5, 6, 7, 9, 10, 12, 13) &
+           date >= as.Date("2019-06-01") &
+           date <= as.Date("2020-05-31")
+         )
+# group by date(ignore sensors)
+monthly_group <- monthly %>%
+  group_by(date) %>%
+  summarise(across(everything(), sum, na.rm = TRUE))
+
+# plot data processing
+library(lubridate)
+# total
+monthly_plot <- monthly_group %>%
+  mutate(month = floor_date(date, "month"))
+
+monthly_mean <- monthly_plot %>%
+  group_by(month) %>%
+  summarise(mean_value = mean(calls_number_clean))
+
+write.csv(monthly_plot, "C:/Users/WD/Desktop/dissertation/Wendi/dissertation/monthly_plot.csv", row.names = FALSE)
+# species
+#speciessum
+species <- monthly_plot %>%
+  group_by(month) %>%
+  summarise(
+  Pipistrellus_pipistrellus = sum(Pipistrellus.pipistrellus, na.rm = TRUE),
+  Pipistrellus_nathusii = sum(Pipistrellus.nathusii, na.rm = TRUE),
+  Pipistrellus_pygmaeus = sum(Pipistrellus.pygmaeus, na.rm = TRUE))
+species$month_year <- factor(format(species$month, "%Y-%m"))
+species <- species[, -which(names(species) == "month")]
+#species-mean
+species_mean <- monthly_plot %>%
+  group_by(month) %>%
+  summarise(
+  Pipistrellus_pipistrellus = mean(Pipistrellus.pipistrellus, na.rm = TRUE),
+  Pipistrellus_nathusii = mean(Pipistrellus.nathusii, na.rm = TRUE),
+  Pipistrellus_pygmaeus = mean(Pipistrellus.pygmaeus, na.rm = TRUE))
+#species-percentage
+total_call <- sum(monthly_plot$calls_number_clean)#all sensors in one year
+species_percentage <- data.frame(
+  month_year = species$month_year,
+  Pipistrellus_pipistrellus = species$Pipistrellus_pipistrellus / total_call,
+  Pipistrellus_nathusii = species$Pipistrellus_nathusii / total_call,
+  Pipistrellus_pygmaeus = species$Pipistrellus_pygmaeus / total_call
+)
+#important step!!
+# ensure that the month_year column exists in the monthly_mean data frame as well
+monthly_plot$month_year <- factor(format(monthly_plot$month, "%Y-%m"))
+monthly_mean$month_year <- factor(format(monthly_mean$month, "%Y-%m"))
+
+#plot boxplots for each month(totally)
+p_monthly <- ggplot(monthly_plot, aes(x = month_year, y = calls_number_clean, group = month_year)) +
+  geom_boxplot() +
+  geom_point(data = monthly_mean, aes(x = month_year, y = mean_value,shape = 'Average bat calls per day'), color = '#650021') +
+  geom_line(data = monthly_mean, aes(x = month_year, y = mean_value), color = '#650021', group = 1) +
+  # Add a fake line
+  #geom_line(data = data.frame(), aes(color = "Median Value")) +
+  #scale_color_manual(name = "", values = c('Median Value' = 'black')) +
+  labs(y = "Bat Calls (per day)") +
+  #theme_minimal() +
+  theme(plot.title = element_text(size = 22),#title of plot
+        axis.title.x = element_blank(),#title of axis
+        axis.title.y = element_text(size = 18),
+        axis.text.y = element_text(size = 16),# text of axis
+        axis.text.x = element_text(angle = 45, hjust = 1,size = 16),
+        legend.title = element_text(size = 18),
+        legend.text = element_text(size = 18),
+        legend.position = c(0.7, 0.85),#left bottomn (0,0)
+        legend.background = element_blank())+
+  scale_shape_manual(name = "", values = c('Average bat calls per day' = 17)) 
+#p_monthly <- p_monthly + scale_y_log10()
+
+print(p_monthly)
+ggsave("C:/Users/WD/Desktop/dissertation/Wendi/time_series/output_figures/monthly_2019_2020.png", plot = p_monthly, width = 10, height = 8, dpi = 600)
+
+#========= plot species-mean
+df_long <- species_mean %>%
+  gather(key = "species", value = "count", -month)
+df_long$month <- as.Date(df_long$month, format = "%Y-%m")
+
+#
+p <- ggplot(df_long, aes(x = month, y = count, fill = species, colour = species)) +
+  geom_bar(stat = "identity", position = "dodge",alpha = 0.4) +
+  geom_line(aes(group = species, linetype = species), stat = "identity", position = position_dodge(0.9),linewidth = 1.2) +
+  scale_y_log10()+
+  labs(y = "Average Bat Calls per day (log10 scale)")+
+  theme(plot.title = element_text(size = 22),#title of plot
+        axis.title.x = element_blank(),#title of axis
+        axis.title.y = element_text(size = 18),
+        axis.text.y = element_text(size = 16),# text of axis
+        axis.text.x = element_text(angle = 45, hjust = 1,size = 16),
+        legend.title = element_text(size = 16),
+        legend.text = element_text(size = 14),
+        legend.position = c(0.6, 0.8),#left bottomn (0,0)
+        legend.background = element_blank())
+
+p <- p + scale_x_date(date_labels = "%Y-%m", date_breaks = "1 month")
+
+p <- p +  scale_fill_manual(values = c("Pipistrellus_pipistrellus" = "#161616", "Pipistrellus_nathusii" = "#525252", "Pipistrellus_pygmaeus" = "#833C0C"),name = "Color") +
+  scale_colour_manual(values = c("Pipistrellus_pipistrellus" = "#161616", "Pipistrellus_nathusii" = "#525252", "Pipistrellus_pygmaeus" = "#833C0C"),guide = "none")+
+   scale_linetype_manual(values = c("Pipistrellus_pipistrellus" = "solid", "Pipistrellus_nathusii" = "dashed", "Pipistrellus_pygmaeus" = "dotted"),name = "Line type")
+
+# 
+print(p)
+ggsave("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/output_figures/species_2019_2020_new.png", plot = p, width = 10, height = 8, dpi = 600)
+
+```
+#several years plot-total
+```{r}
+#filter
+monthly_1819 <- complete_date %>%
+  filter(sensor_number %in% c(2, 3, 9, 10, 11, 14) &
+           date >= as.Date("2018-06-01") &
+           date <= as.Date("2019-05-31")
+         )
+montly_2021 <- complete_date %>%
+  filter(sensor_number %in% c(10, 12) &
+           date >= as.Date("2020-06-01") &
+           date <= as.Date("2021-05-31")
+         )
+montly_2122 <- complete_date %>%
+  filter(sensor_number %in% c(5, 12) &
+           date >= as.Date("2021-06-01") &
+           date <= as.Date("2022-05-31")
+         )
+montly_2223 <- complete_date %>%
+  filter(sensor_number %in% c(5, 12) &
+           date >= as.Date("2022-06-01") &
+           date <= as.Date("2023-05-31")
+         )
+monthly_list <- list(monthly_1819, monthly, montly_2021, montly_2122, montly_2223)
+
+# function for monthly sum and percentage
+process_data <- function(df) {
+  library(dplyr)
+  library(lubridate)
+  #sum up sensors and add month
+  group <- df %>%
+    group_by(date) %>%
+    summarise(across(everything(), sum, na.rm = TRUE)) %>%
+    mutate(month = floor_date(date, "month"))
+  #m
+  df_sum_percentage <- group %>%
+    group_by(month) %>%
+    summarise(sum_value = sum(calls_number_clean))
+    
+  df_sum_percentage$percentage <- df_sum_percentage$sum_value / sum(df_sum_percentage$sum_value)
+    
+  return(df_sum_percentage)
+}
+
+processed_list <- map(monthly_list, process_data)
+# plot
+library(ggplot2)
+library(purrr)
+library(patchwork)
+library(scales)  # for date formatting
+
+plot_data <- function(df, plot_title) {
+  p <- ggplot(df, aes(x = month, y = percentage, color = "All species", linetype = "All species")) +
+    geom_line(size = 1) +
+     # add color aesthetic
+    scale_x_date(date_breaks = "1 month",date_labels = "%b")+
+    labs(title = plot_title,y = "Call sequence %")+
+    scale_y_continuous(limits = c(0, 0.7)) +
+  theme(plot.title = element_text(size = 14),#title of plot
+        axis.title.x = element_blank(),#title of axis
+        axis.title.y = element_text(size = 10),
+        axis.text.y = element_text(size = 8),# text of axis
+        axis.text.x = element_text(angle = 45, hjust = 1,size = 8),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 10),
+        legend.position = c(0.6, 0.8),#left bottomn (0,0)
+        legend.background = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA, size=0.6))
+  
+  if (plot_title == tail(titles, n = 1)) {
+    p <- p + theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8))
+  } else {
+    p <- p + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+  }
+
+  # Add annotation based on title
+  if (plot_title == "2018-2019") {
+    p <- p + annotate("text", x = as.Date("2018-06-01"), y = 0.65,hjust = 0, label = "Sensors 2 3 9 10 11 14 (n = 259436)", size = 3.5)
+  } else if (plot_title == "2019-2020") {
+    p <- p + annotate("text", x = as.Date("2019-06-01"), y = 0.65, hjust = 0,label = "Sensors 2 3 4 5 6 7 9 10 12 13 (n = 1766530)", size = 3.5)
+  } else if (plot_title == "2020-2021") {
+    p <- p + annotate("text", x = as.Date("2020-06-01"), y = 0.65,hjust = 0, label = "Sensors 10 12 (n = 77120)", size = 3.5)
+  } else if (plot_title == "2021-2022") {
+    p <- p + annotate("text", x = as.Date("2021-06-01"), y = 0.65, hjust = 0,label = "Sensors 5 12 (n = 127628)", size = 3.5)
+  } else if (plot_title == "2022-2023") {
+    p <- p + annotate("text", x = as.Date("2022-06-01"), y = 0.65, hjust = 0, label = "Sensors 5 12 (n = 170003)", size = 3.5)
+  }
+
+  p <- p +
+    scale_colour_manual(name = "Total", values = c("All species" = "#161616")) +
+    scale_linetype_manual(name = "Total", values = c("All species" = "solid"))
+
+  return(p)
+}
+
+titles <- c("2018-2019", "2019-2020", "2020-2021", "2021-2022", "2022-2023")
+
+plot_list <- map2(processed_list, titles, plot_data)
+
+combined_plot <- plot_list[[1]] / plot_list[[2]] / plot_list[[3]] / plot_list[[4]] / plot_list[[5]] +
+  plot_layout(guides = 'collect')& theme(legend.position = "bottom")
+
+#
+#combined_plot <- wrap_plots(plotlist = plot_list, ncol = 1, align = 'v', guides = 'collect')
+
+print(combined_plot)
+
+ggsave("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/output_figures/total_5years_new_new.png", plot = combined_plot, width = 5.5, height = 8, dpi = 600)
+
+
+```
+
+
+#several years-species
+```{r}
+species_data <- function(df){
+   group <- df %>%
+    group_by(date) %>% #sum up sensors
+    summarise(across(everything(), sum, na.rm = TRUE)) %>%
+    mutate(month = floor_date(date, "month")) #add month column
+   
+   group$month <- factor(format(group$month, "%Y-%m"))
+  
+    species <- group %>%
+    group_by(month) %>%
+    summarise(
+    Pipistrellus_pipistrellus = sum(Pipistrellus.pipistrellus, na.rm = TRUE),
+    Pipistrellus_nathusii = sum(Pipistrellus.nathusii, na.rm = TRUE),
+    Pipistrellus_pygmaeus = sum(Pipistrellus.pygmaeus, na.rm = TRUE))
+  
+  total_call <- sum(group$calls_number_clean)#monthly_plot are for different years!! 
+  species_percentage <- data.frame(
+  month_year = species$month,
+  Pipistrellus_pipistrellus = species$Pipistrellus_pipistrellus / total_call,
+  Pipistrellus_nathusii = species$Pipistrellus_nathusii / total_call,
+  Pipistrellus_pygmaeus = species$Pipistrellus_pygmaeus / total_call
+)
+
+  return(species_percentage)
+}
+
+species_list <- map(monthly_list,species_data) #monthly_list is the same as the above
+
+plot_species_data <- function(df, plot_title) {
+df_long <- df %>%
+  gather(key = "species", value = "count", -month_year)
+df_long$month_year <- ym(df_long$month_year)
+##plot
+p <- ggplot(df_long, aes(x = month_year, y = count, fill = species, colour = species)) +
+  scale_x_date(date_breaks = "1 month",date_labels = "%b")+
+  #geom_bar(stat = "identity", position = "dodge",alpha = 0.4) +
+  geom_line(aes(group = species, linetype = species), stat = "identity", position = position_dodge(0.9),linewidth = 0.5) +
+  scale_y_log10(limits = c(0.00001, 1))+
+  labs(y = "Species % (log)",title = plot_title)+
+  theme(plot.title = element_text(size = 14),#title of plot
+        axis.title.x = element_blank(),#title of axis
+        axis.title.y = element_text(size = 10),
+        axis.text.y = element_text(size = 8),# text of axis
+        #axis.text.x = element_text(angle = 45, hjust = 1,size = 6),
+        axis.text.x = element_blank(),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 10),
+        legend.position = c(0.6, 0.8),#left bottomn (0,0)
+        legend.background = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA, size=0.6))
+p <- p +
+  #scale_fill_manual(values = c("Pipistrellus_pipistrellus" = "#161616", "Pipistrellus_nathusii" = "#525252", "Pipistrellus_pygmaeus" = "#833C0C"),name = "Color") +
+  scale_colour_manual(values = c("Pipistrellus_pipistrellus" = "#161616", "Pipistrellus_nathusii" = "#525252", "Pipistrellus_pygmaeus" = "#833C0C"),name = "Species", labels = c("P. nathusii","P. pipistrellus", "P. pygmaeus"))+
+   scale_linetype_manual(values = c("Pipistrellus_pipistrellus" = "solid", "Pipistrellus_nathusii" = "dashed", "Pipistrellus_pygmaeus" = "dotted"),name = "Species", labels = c("P. nathusii","P. pipistrellus", "P. pygmaeus"))
+
+ if (plot_title == tail(titles, n = 1)) {
+    p <- p + theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8))
+  } else {
+    p <- p + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+  }
+}
+
+
+
+titles <- c("2018-2019", "2019-2020", "2020-2021", "2021-2022", "2022-2023")
+
+plot_species_list <- map2(species_list, titles, plot_species_data)
+
+combined_species_plot <- plot_species_list[[1]] / plot_species_list[[2]] / plot_species_list[[3]] / plot_species_list[[4]] / plot_species_list[[5]] +
+  plot_layout(guides = 'collect')& theme(legend.position = "bottom")
+
+
+print(combined_species_plot)
+
+ggsave("C:/Users/WD/Desktop/dissertation/Wendi/Dissertation/output_figures/species_5years_new.png", plot = combined_species_plot, width = 5.5,height = 8, dpi = 600)
+
+```
+
